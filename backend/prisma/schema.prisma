@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           Int           @id @default(autoincrement())
+  email        String        @unique
+  passwordHash String
+  name         String        @default("Dr. Roelof Retief")
+  createdAt    DateTime      @default(now())
+  patients     Patient[]
+  appointments Appointment[]
+  settings     Setting[]
+  messageLogs  MessageLog[]
+}
+
+model Patient {
+  id              Int           @id @default(autoincrement())
+  userId          Int           @default(1)
+  user            User          @relation(fields: [userId], references: [id])
+  name            String
+  phone           String        @unique
+  email           String?
+  notes           String?
+  consentWhatsApp Boolean       @default(false)
+  optedOut        Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  appointments    Appointment[]
+  messageLogs     MessageLog[]
+}
+
+model Appointment {
+  id          Int               @id @default(autoincrement())
+  userId      Int               @default(1)
+  user        User              @relation(fields: [userId], references: [id])
+  patient     Patient           @relation(fields: [patientId], references: [id])
+  patientId   Int
+  startTime   DateTime
+  endTime     DateTime
+  status      AppointmentStatus @default(SCHEDULED)
+  notes       String?
+  customMsg   String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  messageLogs MessageLog[]
+}
+
+model MessageLog {
+  id            Int           @id @default(autoincrement())
+  userId        Int           @default(1)
+  user          User          @relation(fields: [userId], references: [id])
+  appointment   Appointment?  @relation(fields: [appointmentId], references: [id])
+  appointmentId Int?
+  patient       Patient       @relation(fields: [patientId], references: [id])
+  patientId     Int
+  type          MessageType
+  status        MessageStatus @default(SENT)
+  twilioSid     String?
+  errorMessage  String?
+  sentAt        DateTime      @default(now())
+}
+
+model Setting {
+  id            Int    @id @default(autoincrement())
+  userId        Int    @unique @default(1)
+  user          User   @relation(fields: [userId], references: [id])
+  bufferMinutes Int    @default(10)
+  workdayStart  String @default("08:00")
+  workdayEnd    String @default("17:00")
+  practiceName  String @default("Dr. Roelof Retief")
+  practicePhone String @default("")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum MessageType {
+  CONFIRMATION
+  REMINDER
+  CHANGE
+  CANCELLATION
+  CUSTOM
+}
+
+enum MessageStatus {
+  SENT
+  FAILED
+}
