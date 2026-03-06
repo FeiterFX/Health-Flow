@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone } from 'lucide-react';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
+import { buildMessage } from '../lib/whatsapp';
 import toast from 'react-hot-toast';
 
 interface Patient { id: number; name: string; phone: string; }
@@ -22,7 +23,11 @@ export default function NewAppointmentPage() {
     const [customMsg, setCustomMsg] = useState('');
     const [saving, setSaving] = useState(false);
 
-    useEffect(() => { api.get('/patients').then(r => setPatients(r.data)); }, []);
+    useEffect(() => {
+        supabase.from('Patient').select('*').order('name').then(r => {
+            if (r.data) setPatients(r.data as any);
+        });
+    }, []);
 
     const handleSelectContact = async () => {
         try {
@@ -48,46 +53,98 @@ export default function NewAppointmentPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        let targetPatientName = '';
         let targetPatientId = patientId;
+        let targetPatientPhone = '';
 
         if (patientMode === 'create') {
             if (!newPatient.name || !newPatient.phone) return toast.error('Please enter client name and phone');
+            targetPatientName = newPatient.name;
+            targetPatientPhone = newPatient.phone;
         } else {
             if (!patientId) return toast.error('Please select a client');
+            const pt = patients.find(p => String(p.id) === patientId);
+            if (pt) {
+                targetPatientName = pt.name;
+                targetPatientPhone = pt.phone;
+            }
         }
 
         if (!startTime) return toast.error('Please select a date/time');
 
         const waWindow = window.open('', '_blank');
-
         setSaving(true);
         try {
-            if (patientMode === 'create') {
-                const created = await api.post('/patients', { ...newPatient, consentWhatsApp: true });
-                targetPatientId = String(created.data.id);
+            const start = new Date(startTime);
+            const end = new Date(start.getTime() + 60 * 60 * 1000); // 60 min session
+
+            // Check double booking
+            const { data: conflict } = await supabase.from('Appointment')
+                .select('id, startTime, patient:Patient(name)')
+                .eq('status', 'SCHEDULED')
+                .lt('startTime', end.toISOString())
+                .gt('endTime', start.toISOString())
+                .maybeSingle();
+
+            if (conflict) {
+                if (waWindow) waWindow.close();
+                const timeStr = new Date(conflict.startTime).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+                setSaving(false);
+                return toast.error(`Time unavailable. slot conflicts with ${(conflict.patient as any)?.name} at ${timeStr}.`);
             }
 
-            const appt = await api.post('/appointments', { patientId: Number(targetPatientId), startTime, notes, customMsg });
+            if (patientMode === 'create') {
+                const { data: created, error: ptError } = await supabase.from('Patient')
+                    .insert([{ ...newPatient, consentWhatsApp: true }])
+                    .select().single();
+                if (ptError) throw ptError;
+                targetPatientId = String(created.id);
+            }
+
+            const { data: appt, error: apptError } = await supabase.from('Appointment')
+                .insert([{ patientId: Number(targetPatientId), startTime: start.toISOString(), endTime: end.toISOString(), notes, customMsg }])
+                .select().single();
+            if (apptError) throw apptError;
+
             toast.success('Appointment created!');
 
-            const phoneToUse = appt.data.patient?.phone || (patientMode === 'create' ? newPatient.phone : null);
+            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
+            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+            const msgText = buildMessage(targetPatientName, start.toISOString(), 'CONFIRMATION', practiceName, customMsg);
 
-            if (appt.data._whatsappText && phoneToUse) {
-                let cleanPhone = phoneToUse.replace(/[^0-9]/g, '');
+            if (msgText && targetPatientPhone) {
+                let cleanPhone = targetPatientPhone.replace(/[^0-9]/g, '');
                 if (cleanPhone.startsWith('0')) {
                     cleanPhone = '27' + cleanPhone.substring(1);
                 }
-                const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(appt.data._whatsappText)}`;
-                if (waWindow) {
-                    waWindow.location.href = waUrl;
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                const waUrl = isMobile
+                    ? `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(msgText)}`
+                    : `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msgText)}`;
+
+                if (isMobile) {
+                    if (waWindow) waWindow.close();
+                    // On iOS Safari PWAs, setting window.location.href directly can sometimes record in the history stack,
+                    // causing the "Back to App" button to try and reload the whatsapp:// scheme inside the PWA view.
+                    // Instead, we create a hidden anchor link and fake a click.
+                    const a = document.createElement('a');
+                    a.href = waUrl;
+                    a.target = '_top';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
                 } else {
-                    window.location.href = waUrl;
+                    if (waWindow) {
+                        waWindow.location.href = waUrl;
+                    } else {
+                        window.open(waUrl, '_blank') || (window.location.href = waUrl);
+                    }
                 }
             } else if (waWindow) {
                 waWindow.close();
             }
 
-            navigate(`/appointments/${appt.data.id}`);
+            navigate(`/appointments/${appt.id}`);
         } catch (err: any) {
             try {
                 if (waWindow && !waWindow.closed) {
@@ -95,7 +152,7 @@ export default function NewAppointmentPage() {
                     if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
                 }
             } catch (ignore) { }
-            toast.error(err.response?.data?.error || 'Error creating appointment');
+            toast.error(err.message || 'Error creating appointment');
         } finally { setSaving(false); }
     };
 
@@ -131,9 +188,9 @@ export default function NewAppointmentPage() {
                                 <button type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: '1rem', justifyContent: 'center' }} onClick={handleSelectContact}>
                                     <Phone size={16} /> Choose from Contacts
                                 </button>
-                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input className="form-input" placeholder="Full Name *" name="name" autoComplete="name" value={newPatient.name || ''} onChange={e => setNewPatient(p => ({ ...p, name: e.target.value }))} required /></div>
-                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input className="form-input" placeholder="Phone (E.164 e.g. +27821234567) *" name="phone" autoComplete="tel" value={newPatient.phone || ''} onChange={e => setNewPatient(p => ({ ...p, phone: e.target.value }))} required /></div>
-                                <div className="form-group" style={{ marginBottom: 0 }}><input className="form-input" type="email" placeholder="Email (optional)" name="email" autoComplete="email" value={newPatient.email || ''} onChange={e => setNewPatient(p => ({ ...p, email: e.target.value }))} /></div>
+                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input id="new-patient-name" className="form-input" placeholder="Full Name *" name="name" autoComplete="name" value={newPatient.name || ''} onChange={e => setNewPatient(p => ({ ...p, name: e.target.value }))} required /></div>
+                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input id="new-patient-phone" type="tel" className="form-input" placeholder="Phone (E.164 e.g. +27821234567) *" name="phone" autoComplete="tel" value={newPatient.phone || ''} onChange={e => setNewPatient(p => ({ ...p, phone: e.target.value }))} required /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><input id="new-patient-email" className="form-input" type="email" placeholder="Email (optional)" name="email" autoComplete="email" value={newPatient.email || ''} onChange={e => setNewPatient(p => ({ ...p, email: e.target.value }))} /></div>
                             </div>
                         )}
                     </div>

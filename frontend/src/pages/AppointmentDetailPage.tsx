@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Send, XCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
+import { buildMessage, type MsgType } from '../lib/whatsapp';
 import toast from 'react-hot-toast';
 
 interface Patient { id: number; name: string; phone: string; }
@@ -21,7 +22,17 @@ export default function AppointmentDetailPage() {
     const [notes, setNotes] = useState('');
     const [saving, setSaving] = useState(false);
 
-    const load = () => api.get(`/appointments/${id}`).then(r => { setAppt(r.data); setNotes(r.data.notes || ''); });
+    const load = async () => {
+        const { data, error } = await supabase.from('Appointment').select('*, patient:Patient(id, name, phone)').eq('id', id).single();
+        if (error) {
+            toast.error('Error loading appointment');
+            return;
+        }
+        if (data) {
+            setAppt(data as any);
+            setNotes(data.notes || '');
+        }
+    };
     useEffect(() => { load(); }, [id]);
 
     const openWhatsApp = (phone: string, text: string, waWindow?: Window | null) => {
@@ -33,11 +44,25 @@ export default function AppointmentDetailPage() {
         if (cleanPhone.startsWith('0')) {
             cleanPhone = '27' + cleanPhone.substring(1);
         }
-        const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
-        if (waWindow) {
-            waWindow.location.href = waUrl;
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const waUrl = isMobile
+            ? `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
+            : `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+
+        if (isMobile) {
+            if (waWindow) waWindow.close();
+            const a = document.createElement('a');
+            a.href = waUrl;
+            a.target = '_top';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         } else {
-            window.location.href = waUrl; // fallback
+            if (waWindow) {
+                waWindow.location.href = waUrl;
+            } else {
+                window.open(waUrl, '_blank') || (window.location.href = waUrl);
+            }
         }
     };
 
@@ -45,10 +70,17 @@ export default function AppointmentDetailPage() {
         const waWindow = window.open('', '_blank');
         setSaving(true);
         try {
-            const res = await api.put(`/appointments/${id}`, { startTime: newTime || appt?.startTime, notes, status: appt?.status });
+            const updates = { startTime: newTime || appt?.startTime, notes, status: appt?.status };
+            const { error } = await supabase.from('Appointment').update(updates).eq('id', id);
+            if (error) throw error;
+
             toast.success('Appointment updated!');
-            if (res.data._whatsappText && res.data.patient?.phone) {
-                openWhatsApp(res.data.patient.phone, res.data._whatsappText, waWindow);
+            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
+            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+
+            if (appt?.patient?.phone) {
+                const msgText = buildMessage(appt.patient.name, updates.startTime as string, 'CHANGE', practiceName, updates.notes);
+                openWhatsApp(appt.patient.phone, msgText, waWindow);
             } else if (waWindow) {
                 waWindow.close();
             }
@@ -61,7 +93,7 @@ export default function AppointmentDetailPage() {
                     if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
                 }
             } catch (ignore) { }
-            toast.error(err.response?.data?.error || 'Error updating');
+            toast.error(err.message || 'Error updating');
         } finally { setSaving(false); }
     };
 
@@ -69,11 +101,16 @@ export default function AppointmentDetailPage() {
         if (!confirm('Cancel this appointment? You will be prompted to send a WhatsApp notification.')) return;
         const waWindow = window.open('', '_blank');
         try {
-            await api.delete(`/appointments/${id}`);
+            const { error } = await supabase.from('Appointment').update({ status: 'CANCELLED' }).eq('id', id);
+            if (error) throw error;
             toast.success('Appointment cancelled');
-            const msgRes = await api.post(`/appointments/${id}/build-message`, { type: 'CANCELLATION' });
-            if (appt?.patient?.phone && msgRes.data.text) {
-                openWhatsApp(appt.patient.phone, msgRes.data.text, waWindow);
+
+            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
+            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+
+            if (appt?.patient?.phone && appt?.startTime) {
+                const msgText = buildMessage(appt.patient.name, appt.startTime, 'CANCELLATION', practiceName);
+                openWhatsApp(appt.patient.phone, msgText, waWindow);
             } else {
                 try {
                     if (waWindow && !waWindow.closed) {
@@ -94,7 +131,7 @@ export default function AppointmentDetailPage() {
     };
 
     const handleComplete = async () => {
-        await api.put(`/appointments/${id}`, { status: 'COMPLETED' });
+        await supabase.from('Appointment').update({ status: 'COMPLETED' }).eq('id', id);
         toast.success('Marked as completed');
         load();
     };
@@ -102,9 +139,12 @@ export default function AppointmentDetailPage() {
     const handleSendMsg = async (type: string) => {
         const waWindow = window.open('', '_blank');
         try {
-            const msgRes = await api.post(`/appointments/${id}/build-message`, { type });
-            if (appt?.patient?.phone && msgRes.data.text) {
-                openWhatsApp(appt.patient.phone, msgRes.data.text, waWindow);
+            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
+            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+
+            if (appt?.patient?.phone && appt?.startTime) {
+                const msgText = buildMessage(appt.patient.name, appt.startTime, type as MsgType, practiceName, appt.customMsg);
+                openWhatsApp(appt.patient.phone, msgText, waWindow);
             } else {
                 try {
                     if (waWindow && !waWindow.closed) {

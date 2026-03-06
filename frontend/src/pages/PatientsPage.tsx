@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Search, Plus, Phone, Pencil, Trash2, X } from 'lucide-react';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface Patient { id: number; name: string; phone: string; email?: string; notes?: string; consentWhatsApp: boolean; optedOut: boolean; }
@@ -14,7 +14,11 @@ export default function PatientsPage() {
     const [editing, setEditing] = useState<Partial<Patient>>(EMPTY);
     const [saving, setSaving] = useState(false);
 
-    const load = () => api.get('/patients').then(r => setPatients(r.data));
+    const load = async () => {
+        const { data, error } = await supabase.from('Patient').select('*').order('name');
+        if (data) setPatients(data as any);
+        if (error) toast.error('Error loading patients');
+    };
     useEffect(() => { load(); }, []);
 
     const filtered = patients.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.phone.includes(search));
@@ -27,27 +31,30 @@ export default function PatientsPage() {
         setSaving(true);
         try {
             if (editing.id) {
-                await api.put(`/patients/${editing.id}`, editing);
+                const { error } = await supabase.from('Patient').update(editing).eq('id', editing.id);
+                if (error) throw error;
                 toast.success('Client updated');
             } else {
-                await api.post('/patients', editing);
+                const { error } = await supabase.from('Patient').insert([editing]);
+                if (error) throw error;
                 toast.success('Client added');
             }
             setModal(false);
             load();
         } catch (err: any) {
-            toast.error(err.response?.data?.error || 'Error saving client');
+            toast.error(err.message || 'Error saving client');
         } finally { setSaving(false); }
     };
 
     const handleDelete = async (id: number) => {
         if (!confirm('Delete this client? This cannot be undone.')) return;
         try {
-            await api.delete(`/patients/${id}`);
+            const { error } = await supabase.from('Patient').delete().eq('id', id);
+            if (error) throw error;
             toast.success('Client deleted');
             load();
         } catch (err: any) {
-            toast.error(err.response?.data?.error || 'Error deleting client');
+            toast.error(err.message || 'Error deleting client');
         }
     };
 
@@ -135,8 +142,8 @@ export default function PatientsPage() {
                                     <Phone size={16} /> Choose from Contacts
                                 </button>
                             )}
-                            <div className="form-group"><label className="form-label">Full Name *</label><input className="form-input" name="name" autoComplete="name" value={editing.name || ''} onChange={e => setEditing(p => ({ ...p, name: e.target.value }))} required /></div>
-                            <div className="form-group"><label className="form-label">Phone (E.164 format e.g. +27821234567) *</label><input className="form-input" name="phone" autoComplete="tel" value={editing.phone || ''} onChange={e => setEditing(p => ({ ...p, phone: e.target.value }))} placeholder="+27821234567" required /></div>
+                            <div className="form-group"><label className="form-label" htmlFor="patient-name">Full Name *</label><input id="patient-name" className="form-input" name="name" autoComplete="name" value={editing.name || ''} onChange={e => setEditing(p => ({ ...p, name: e.target.value }))} required /></div>
+                            <div className="form-group"><label className="form-label" htmlFor="patient-phone">Phone (E.164 format e.g. +27821234567) *</label><input id="patient-phone" type="tel" className="form-input" name="phone" autoComplete="tel" value={editing.phone || ''} onChange={e => setEditing(p => ({ ...p, phone: e.target.value }))} placeholder="+27821234567" required /></div>
                             <div className="form-group"><label className="form-label">Email (optional)</label><input className="form-input" type="email" name="email" autoComplete="email" value={editing.email || ''} onChange={e => setEditing(p => ({ ...p, email: e.target.value }))} /></div>
                             <div className="form-group"><label className="form-label">Notes (practitioner only)</label><textarea className="form-textarea" value={editing.notes || ''} onChange={e => setEditing(p => ({ ...p, notes: e.target.value }))} /></div>
                             <label className="form-checkbox" style={{ padding: '0.75rem', border: '1px solid var(--border-color)', borderRadius: 6, marginBottom: '0.5rem' }}>
