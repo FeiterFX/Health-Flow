@@ -76,7 +76,7 @@ export default function AppointmentDetailPage() {
 
             toast.success('Appointment updated!');
             const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
 
             if (appt?.patient?.phone) {
                 const msgText = buildMessage(appt.patient.name, updates.startTime as string, 'CHANGE', practiceName, updates.notes);
@@ -106,7 +106,7 @@ export default function AppointmentDetailPage() {
             toast.success('Appointment cancelled');
 
             const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
 
             if (appt?.patient?.phone && appt?.startTime) {
                 const msgText = buildMessage(appt.patient.name, appt.startTime, 'CANCELLATION', practiceName);
@@ -140,7 +140,7 @@ export default function AppointmentDetailPage() {
         const waWindow = window.open('', '_blank');
         try {
             const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
 
             if (appt?.patient?.phone && appt?.startTime) {
                 const msgText = buildMessage(appt.patient.name, appt.startTime, type as MsgType, practiceName, appt.customMsg);

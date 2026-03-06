@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 interface MessageLog {
     id: number; type: string; status: string; sentAt: string; twilioSid?: string; errorMessage?: string;
@@ -12,7 +12,19 @@ export default function MessagesPage() {
     const [logs, setLogs] = useState<MessageLog[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => { api.get('/messages').then(r => setLogs(r.data)).finally(() => setLoading(false)); }, []);
+    useEffect(() => {
+        const fetchLogs = async () => {
+            try {
+                const { data } = await supabase.from('MessageLog')
+                    .select('*, patient:Patient(name, phone), appointment:Appointment(startTime)')
+                    .order('sentAt', { ascending: false });
+                if (data) setLogs(data as any);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchLogs();
+    }, []);
 
     const typeBadge = (t: string) => {
         const map: any = { CONFIRMATION: 'badge-indigo', REMINDER: 'badge-amber', CHANGE: 'badge-amber', CANCELLATION: 'badge-red', CUSTOM: 'badge-gray' };

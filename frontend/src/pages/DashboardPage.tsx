@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Users, CheckCircle, Clock } from 'lucide-react';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 
 interface Appointment {
@@ -16,13 +16,17 @@ export default function DashboardPage() {
     const navigate = useNavigate();
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [patientCount, setPatientCount] = useState(0);
-    const [practiceName, setPracticeName] = useState('Dr. Roelof Retief');
+    const [practiceName, setPracticeName] = useState('Roelof Retief');
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        Promise.all([api.get('/appointments'), api.get('/patients'), api.get('/settings')]).then(([a, p, s]) => {
-            setAppointments(a.data);
-            setPatientCount(p.data.length);
+        Promise.all([
+            supabase.from('Appointment').select('*, patient:Patient(name, phone)'),
+            supabase.from('Patient').select('*', { count: 'exact', head: true }),
+            supabase.from('Setting').select('practiceName').maybeSingle()
+        ]).then(([a, p, s]) => {
+            if (a.data) setAppointments(a.data as any);
+            if (p.count) setPatientCount(p.count);
             if (s.data?.practiceName) setPracticeName(s.data.practiceName);
         }).finally(() => setLoading(false));
     }, []);

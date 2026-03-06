@@ -24,7 +24,7 @@ export default function LoginPage() {
             }
             navigate('/');
         } catch (err: any) {
-            toast.error(err.response?.data?.error || (isSignup ? 'Error creating account' : 'Invalid email or password'));
+            toast.error(err.message || (isSignup ? 'Error creating account' : 'Invalid email or password'));
         } finally {
             setLoading(false);
         }
@@ -47,7 +47,7 @@ export default function LoginPage() {
                     {isSignup && (
                         <div className="form-group">
                             <label className="form-label">Full Name</label>
-                            <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Dr. Jane Doe" required />
+                            <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" required />
                         </div>
                     )}
                     <div className="form-group">

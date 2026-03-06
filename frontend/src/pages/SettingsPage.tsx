@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { Download } from 'lucide-react';
 
 interface Settings {
+    id?: number;
     bufferMinutes: number; workdayStart: string; workdayEnd: string;
     practiceName: string; practicePhone: string;
 }
@@ -13,27 +14,67 @@ export default function SettingsPage() {
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => { api.get('/settings').then(r => { setSettings(r.data); }).finally(() => setLoading(false)); }, []);
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const { data } = await supabase.from('Setting').select('*').maybeSingle();
+                if (data) setSettings(data);
+            } finally {
+                setLoading(false);
+            }
+        };
+        load();
+    }, []);
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
         try {
-            await api.put('/settings', settings);
+            const { id, userId, ...updatePayload } = settings as any;
+            const { error } = await supabase.from('Setting').update(updatePayload).eq('id', settings.id);
+            if (error) throw error;
             toast.success('Settings saved');
         } catch {
             toast.error('Error saving settings');
         } finally { setSaving(false); }
     };
 
-    const handleExport = () => { window.open('/api/reports/appointments/export', '_blank'); };
+    const handleExport = async () => {
+        try {
+            const { data } = await supabase.from('Appointment').select('*, patient:Patient(name, phone)').order('startTime', { ascending: false });
+            if (!data) return toast.error('No data to export');
+
+            const headers = ['ID', 'Date', 'Time', 'Client Name', 'Phone', 'Status', 'Notes'];
+            const rows = data.map(a => [
+                a.id,
+                new Date(a.startTime).toLocaleDateString('en-ZA'),
+                new Date(a.startTime).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }),
+                `"${(a.patient as any)?.name || ''}"`,
+                `"${(a.patient as any)?.phone || ''}"`,
+                a.status,
+                `"${(a.notes || '').replace(/"/g, '""')}"`
+            ]);
+
+            const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `appointments_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            toast.error('Error exporting data');
+        }
+    };
 
     if (loading) return <p className="text-muted">Loading…</p>;
 
     return (
         <div>
             <div className="page-header">
-                <div><h2 className="page-title">Settings</h2><p className="page-subtitle">Practice configuration and Twilio credentials</p></div>
+                <div><h2 className="page-title">Settings</h2><p className="page-subtitle">Practice configuration</p></div>
                 <button className="btn btn-secondary" onClick={handleExport}><Download size={15} /> Export CSV</button>
             </div>
 

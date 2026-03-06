@@ -5,7 +5,7 @@ import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { enZA } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 1 }), getDay, locales: { 'en-ZA': enZA } });
 
@@ -19,7 +19,11 @@ export default function AppointmentsPage() {
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [view, setView] = useState<'calendar' | 'list'>('calendar');
 
-    useEffect(() => { api.get('/appointments').then(r => setAppointments(r.data)); }, []);
+    useEffect(() => {
+        supabase.from('Appointment').select('*, patient:Patient(name)').then(r => {
+            if (r.data) setAppointments(r.data as any);
+        });
+    }, []);
 
     const events = appointments.map(a => ({
         id: a.id,

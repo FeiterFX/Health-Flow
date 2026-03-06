@@ -109,7 +109,7 @@ export default function NewAppointmentPage() {
             toast.success('Appointment created!');
 
             const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Dr. Roelof Retief';
+            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
             const msgText = buildMessage(targetPatientName, start.toISOString(), 'CONFIRMATION', practiceName, customMsg);
 
             if (msgText && targetPatientPhone) {

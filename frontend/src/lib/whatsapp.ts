@@ -1,5 +1,3 @@
-import { Patient, Appointment } from '@prisma/client';
-
 export type MsgType = 'CONFIRMATION' | 'REMINDER' | 'CHANGE' | 'CANCELLATION' | 'CUSTOM';
 
 function formatDate(dt: Date): string {
@@ -10,19 +8,21 @@ function formatTime(dt: Date): string {
     return dt.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Johannesburg' });
 }
 
-export function buildMessage(patient: Patient, appt: Appointment, type: MsgType, practiceName: string = 'Dr. Roelof Retief'): string {
-    const date = formatDate(new Date(appt.startTime));
-    const time = formatTime(new Date(appt.startTime));
+export function buildMessage(patientName: string, startTime: string, type: MsgType, practiceName: string = 'Roelof Retief', customMsg?: string): string {
+    const date = formatDate(new Date(startTime));
+    const time = formatTime(new Date(startTime));
+
     switch (type) {
         case 'CONFIRMATION':
-            return `Dear ${patient.name}. A reminder of your appointment with ${practiceName} on ${date} at ${time}. ${appt.customMsg ? appt.customMsg : ''}`;
+            return `Dear ${patientName}. A reminder of your appointment with ${practiceName} on ${date} at ${time}. ${customMsg ? customMsg : ''}`;
         case 'REMINDER':
-            return `Dear ${patient.name}. A reminder of your appointment with ${practiceName} on ${date} at ${time}.`;
+            return `Dear ${patientName}. A reminder of your appointment with ${practiceName} on ${date} at ${time}.`;
         case 'CHANGE':
             return `Your appointment with ${practiceName} has been rescheduled to ${date} at ${time} SAST. Please contact us if you have any questions.`;
         case 'CANCELLATION':
             return `Your appointment with ${practiceName} on ${date} at ${time} SAST has been cancelled. Please contact us to reschedule.`;
+        case 'CUSTOM':
         default:
-            return appt.customMsg || `Message from ${practiceName}.`;
+            return customMsg || `Message from ${practiceName}.`;
     }
 }
