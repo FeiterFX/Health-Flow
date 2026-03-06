@@ -31,10 +31,26 @@ export default function SettingsPage() {
         setSaving(true);
         try {
             const { id, userId, ...updatePayload } = settings as any;
-            const { error } = await supabase.from('Setting').update(updatePayload).eq('id', settings.id);
-            if (error) throw error;
+
+            let queryResult;
+            if (settings.id) {
+                queryResult = await supabase.from('Setting').update(updatePayload).eq('id', settings.id);
+            } else {
+                // If the trigger failed to create a setting, or it's a legacy user, try inserting
+                queryResult = await supabase.from('Setting').insert([updatePayload]).select().single();
+                if (queryResult.data) {
+                    setSettings(queryResult.data);
+                }
+            }
+
+            if (queryResult.error) {
+                console.error("Supabase error saving settings:", queryResult.error);
+                throw queryResult.error;
+            }
+
             toast.success('Settings saved');
-        } catch {
+        } catch (err) {
+            console.error("Catch block err", err);
             toast.error('Error saving settings');
         } finally { setSaving(false); }
     };
