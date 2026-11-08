@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, Phone, Pencil, Trash2, X } from 'lucide-react';
+import { Search, Plus, Phone, Pencil, Trash2, X, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import ClientDocumentsModal from '../components/ClientDocumentsModal';
 
 interface Patient { id: number; name: string; phone: string; email?: string; notes?: string; consentWhatsApp: boolean; optedOut: boolean; }
 
@@ -13,6 +14,7 @@ export default function PatientsPage() {
     const [modal, setModal] = useState(false);
     const [editing, setEditing] = useState<Partial<Patient>>(EMPTY);
     const [saving, setSaving] = useState(false);
+    const [docsPatient, setDocsPatient] = useState<Patient | null>(null);
 
     const load = async () => {
         const { data, error } = await supabase.from('Patient').select('*').order('name');
@@ -80,7 +82,6 @@ export default function PatientsPage() {
         }
     };
 
-
     return (
         <div>
             <div className="page-header">
@@ -98,12 +99,12 @@ export default function PatientsPage() {
                     <table>
                         <thead>
                             <tr>
-                                <th>Client</th><th>Phone</th><th>Email</th><th>WhatsApp</th><th>Status</th><th></th>
+                                <th>Client</th><th>Phone</th><th>Email</th><th>WhatsApp</th><th>Status</th><th>Clinical Records</th><th></th>
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.length === 0 ? (
-                                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No clients found</td></tr>
+                                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No clients found</td></tr>
                             ) : filtered.map(p => (
                                 <tr key={p.id}>
                                     <td>
@@ -117,9 +118,20 @@ export default function PatientsPage() {
                                     <td><span className={`badge ${p.consentWhatsApp ? 'badge-green' : 'badge-gray'}`}>{p.consentWhatsApp ? 'Consented' : 'No consent'}</span></td>
                                     <td><span className={`badge ${p.optedOut ? 'badge-red' : 'badge-green'}`}>{p.optedOut ? 'Opted out' : 'Active'}</span></td>
                                     <td>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                            onClick={() => setDocsPatient(p)}
+                                            title="View Scanned Notes & Clinical Documents"
+                                        >
+                                            <FileText size={13} style={{ color: 'var(--accent)' }} /> Scanned Notes
+                                        </button>
+                                    </td>
+                                    <td>
                                         <div style={{ display: 'flex', gap: 4 }}>
-                                            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(p)}><Pencil size={14} /></button>
-                                            <button className="btn btn-danger btn-sm btn-icon" onClick={() => handleDelete(p.id)}><Trash2 size={14} /></button>
+                                            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(p)} title="Edit Client"><Pencil size={14} /></button>
+                                            <button className="btn btn-danger btn-sm btn-icon" onClick={() => handleDelete(p.id)} title="Delete Client"><Trash2 size={14} /></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -169,6 +181,15 @@ export default function PatientsPage() {
                         </form>
                     </div>
                 </div>
+            )}
+
+            {/* Client Clinical Documents & Handwritten Notes Modal */}
+            {docsPatient && (
+                <ClientDocumentsModal
+                    patient={docsPatient}
+                    isOpen={!!docsPatient}
+                    onClose={() => setDocsPatient(null)}
+                />
             )}
         </div>
     );

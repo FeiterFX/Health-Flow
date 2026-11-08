@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, Users, CheckCircle, Clock } from 'lucide-react';
+import { CalendarDays } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { format } from 'date-fns';
+import { format, parse, getDay, startOfDay } from 'date-fns';
+import { enZA } from 'date-fns/locale';
+import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+const localizer = dateFnsLocalizer({ format, parse, startOfWeek: (date: Date) => startOfDay(date), getDay, locales: { 'en-ZA': enZA } });
 
 interface Appointment {
     id: number;
@@ -15,28 +20,51 @@ interface Appointment {
 export default function DashboardPage() {
     const navigate = useNavigate();
     const [appointments, setAppointments] = useState<Appointment[]>([]);
-    const [patientCount, setPatientCount] = useState(0);
     const [practiceName, setPracticeName] = useState('Roelof Retief');
+    const [settings, setSettings] = useState<{ workdayStart?: string; workdayEnd?: string }>({});
     const [loading, setLoading] = useState(true);
+    const [calendarDate, setCalendarDate] = useState(new Date());
+    const [calendarView, setCalendarView] = useState<any>('day');
 
     useEffect(() => {
         Promise.all([
             supabase.from('Appointment').select('*, patient:Patient(name, phone)'),
-            supabase.from('Patient').select('*', { count: 'exact', head: true }),
-            supabase.from('Setting').select('practiceName').maybeSingle()
-        ]).then(([a, p, s]) => {
+            supabase.from('Setting').select('practiceName, workdayStart, workdayEnd').maybeSingle()
+        ]).then(([a, s]) => {
             if (a.data) setAppointments(a.data as any);
-            if (p.count) setPatientCount(p.count);
             if (s.data?.practiceName) setPracticeName(s.data.practiceName);
+            if (s.data) setSettings(s.data);
         }).finally(() => setLoading(false));
     }, []);
 
     const today = new Date();
-    const todayStr = format(today, 'yyyy-MM-dd');
-    const todayAppts = appointments.filter(a => a.startTime.startsWith(todayStr) && a.status === 'SCHEDULED');
-    const upcomingAppts = appointments.filter(a => new Date(a.startTime) >= today && a.status === 'SCHEDULED').slice(0, 5);
-    const totalScheduled = appointments.filter(a => a.status === 'SCHEDULED').length;
-    const totalCompleted = appointments.filter(a => a.status === 'COMPLETED').length;
+
+    const events = appointments.map(a => ({
+        id: a.id,
+        title: a.patient?.name || 'Unknown',
+        start: new Date(a.startTime),
+        end: new Date(a.endTime),
+        resource: a,
+        className: `status-${a.status}`,
+    }));
+
+    const CustomEvent = ({ event }: any) => {
+        return (
+            <div className="custom-event-content">
+                <div className="custom-event-title">{event.title}</div>
+                <div className="custom-event-stripes"></div>
+            </div>
+        );
+    };
+
+    const parseTime = (timeStr: string, offsetHours: number) => {
+        if (!timeStr) return undefined;
+        const [h, m] = timeStr.split(':').map(Number);
+        return new Date(2026, 0, 1, h + offsetHours, m, 0);
+    };
+
+    const minTime = settings.workdayStart ? parseTime(settings.workdayStart, -1) : new Date(2026, 0, 1, 7, 0, 0);
+    const maxTime = settings.workdayEnd ? parseTime(settings.workdayEnd, 1) : new Date(2026, 0, 1, 18, 0, 0);
 
     return (
         <div>
@@ -51,58 +79,31 @@ export default function DashboardPage() {
             </div>
 
             {loading ? <p className="text-muted">Loading…</p> : (
-                <>
-                    <div className="grid-cols-4">
-                        <div className="stat-card">
-                            <div className="stat-icon amber"><Clock size={20} /></div>
-                            <div><div className="stat-label">Today's Sessions</div><div className="stat-value">{todayAppts.length}</div></div>
-                        </div>
-                        <div className="stat-card">
-                            <div className="stat-icon indigo"><CalendarDays size={20} /></div>
-                            <div><div className="stat-label">Upcoming</div><div className="stat-value">{totalScheduled}</div></div>
-                        </div>
-                        <div className="stat-card">
-                            <div className="stat-icon green"><CheckCircle size={20} /></div>
-                            <div><div className="stat-label">Completed</div><div className="stat-value">{totalCompleted}</div></div>
-                        </div>
-                        <div className="stat-card">
-                            <div className="stat-icon rose"><Users size={20} /></div>
-                            <div><div className="stat-label">Total Clients</div><div className="stat-value">{patientCount}</div></div>
-                        </div>
-                    </div>
-
-                    <div className="grid-cols-2 mt-6">
-                        <div className="card">
-                            <h3 style={{ margin: '0 0 1rem', fontSize: '0.9rem', fontWeight: 700 }}>Today's Appointments</h3>
-                            {todayAppts.length === 0 ? (
-                                <p className="text-muted text-sm">No sessions scheduled for today.</p>
-                            ) : todayAppts.map(a => (
-                                <div key={a.id} onClick={() => navigate(`/appointments/${a.id}`)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-                                    <div className="avatar">{a.patient.name[0]}</div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{a.patient.name}</div>
-                                        <div className="text-muted text-sm">{format(new Date(a.startTime), 'HH:mm')} – {format(new Date(a.endTime), 'HH:mm')}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="card">
-                            <h3 style={{ margin: '0 0 1rem', fontSize: '0.9rem', fontWeight: 700 }}>Upcoming Sessions</h3>
-                            {upcomingAppts.length === 0 ? (
-                                <p className="text-muted text-sm">No upcoming sessions.</p>
-                            ) : upcomingAppts.map(a => (
-                                <div key={a.id} onClick={() => navigate(`/appointments/${a.id}`)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-                                    <div className="avatar">{a.patient.name[0]}</div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{a.patient.name}</div>
-                                        <div className="text-muted text-sm">{format(new Date(a.startTime), 'EEE d MMM, HH:mm')}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </>
+                <div className="card" style={{ padding: '1rem', marginTop: '1rem' }}>
+                    <BigCalendar
+                        localizer={localizer}
+                        events={events}
+                        startAccessor="start"
+                        endAccessor="end"
+                        date={calendarDate}
+                        view={calendarView}
+                        onNavigate={setCalendarDate}
+                        onView={setCalendarView}
+                        views={['month', 'week', 'work_week', 'day']}
+                        step={60}
+                        timeslots={1}
+                        min={minTime}
+                        max={maxTime}
+                        selectable={true}
+                        onSelectSlot={({ start, end }: any) => navigate('/appointments/new', { state: { start: start.toISOString(), end: end.toISOString() } })}
+                        components={{
+                            event: CustomEvent
+                        }}
+                        style={{ height: 650 }}
+                        onSelectEvent={(e: any) => navigate(`/appointments/${e.id}`)}
+                        eventPropGetter={(e: any) => ({ className: `custom-event-wrapper status-${e.resource?.status}` })}
+                    />
+                </div>
             )}
         </div>
     );

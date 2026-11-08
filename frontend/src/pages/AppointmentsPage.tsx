@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, List, Plus } from 'lucide-react';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay } from 'date-fns';
+import { format, parse, getDay, startOfDay } from 'date-fns';
 import { enZA } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 
-const localizer = dateFnsLocalizer({ format, parse, startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 1 }), getDay, locales: { 'en-ZA': enZA } });
+const localizer = dateFnsLocalizer({ format, parse, startOfWeek: (date: Date) => startOfDay(date), getDay, locales: { 'en-ZA': enZA } });
 
 interface Appointment {
     id: number; startTime: string; endTime: string; status: string;
@@ -16,12 +17,35 @@ interface Appointment {
 
 export default function AppointmentsPage() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [appointments, setAppointments] = useState<Appointment[]>([]);
+    const [settings, setSettings] = useState<{ workdayStart?: string; workdayEnd?: string }>({});
     const [view, setView] = useState<'calendar' | 'list'>('calendar');
+    const [calendarDate, setCalendarDate] = useState(location.state?.date ? new Date(location.state.date) : new Date());
+    const [calendarView, setCalendarView] = useState<any>(
+        location.state?.view ? location.state.view : (localStorage.getItem('defaultCalendarView') || (localStorage.getItem('weekdaysOnly') === 'true' ? 'work_week' : 'week'))
+    );
 
     useEffect(() => {
+        if (!localStorage.getItem('debsQuirkyMessageSeen')) {
+            toast("Hey Lovely! I sprinkled some magic on the calendar for you. Pop over to Settings and change your 'Default Calendar View' to 'Day' so it always loads just the way you like it. Happy scheduling! ✨", {
+                duration: 12000,
+                icon: '😎',
+                style: {
+                    border: '1px solid var(--accent)',
+                    padding: '16px',
+                    color: 'var(--text)',
+                    background: 'var(--bg-card)',
+                },
+            });
+            localStorage.setItem('debsQuirkyMessageSeen', 'true');
+        }
+
         supabase.from('Appointment').select('*, patient:Patient(name)').then(r => {
             if (r.data) setAppointments(r.data as any);
+        });
+        supabase.from('Setting').select('workdayStart, workdayEnd').maybeSingle().then(r => {
+            if (r.data) setSettings(r.data);
         });
     }, []);
 
@@ -43,6 +67,23 @@ export default function AppointmentsPage() {
         return <span className="badge badge-red">Cancelled</span>;
     };
 
+    const CustomEvent = ({ event }: any) => {
+        return (
+            <div className="custom-event-content">
+                <div className="custom-event-title">{event.title}</div>
+                <div className="custom-event-stripes"></div>
+            </div>
+        );
+    };
+
+    const parseTime = (timeStr: string, offsetHours: number) => {
+        const [h, m] = timeStr.split(':').map(Number);
+        return new Date(2026, 0, 1, h + offsetHours, m, 0);
+    };
+
+    const minTime = settings.workdayStart ? parseTime(settings.workdayStart, -1) : new Date(2026, 0, 1, 7, 0, 0);
+    const maxTime = settings.workdayEnd ? parseTime(settings.workdayEnd, 1) : new Date(2026, 0, 1, 18, 0, 0);
+
     return (
         <div>
             <div className="page-header">
@@ -61,9 +102,24 @@ export default function AppointmentsPage() {
                         events={events}
                         startAccessor="start"
                         endAccessor="end"
-                        style={{ height: 580 }}
+                        date={calendarDate}
+                        view={calendarView}
+                        onNavigate={setCalendarDate}
+                        onView={setCalendarView}
+                        views={['month', 'week', 'work_week', 'day']}
+                        step={60}
+                        timeslots={1}
+                        min={minTime}
+                        max={maxTime}
+                        selectable={true}
+                        longPressThreshold={10}
+                        onSelectSlot={({ start, end }: any) => navigate('/appointments/new', { state: { start: start.toISOString(), end: end.toISOString() } })}
+                        components={{
+                            event: CustomEvent
+                        }}
+                        style={{ height: 850 }}
                         onSelectEvent={(e: any) => navigate(`/appointments/${e.id}`)}
-                        eventPropGetter={(e: any) => ({ className: `status-${e.resource?.status}` })}
+                        eventPropGetter={(e: any) => ({ className: `custom-event-wrapper status-${e.resource?.status}` })}
                     />
                 </div>
             ) : (

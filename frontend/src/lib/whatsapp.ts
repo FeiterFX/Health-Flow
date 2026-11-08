@@ -1,7 +1,7 @@
 export type MsgType = 'CONFIRMATION' | 'REMINDER' | 'CHANGE' | 'CANCELLATION' | 'CUSTOM';
 
 function formatDate(dt: Date): string {
-    return dt.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Africa/Johannesburg' });
+    return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'Africa/Johannesburg' });
 }
 
 function formatTime(dt: Date): string {
@@ -12,15 +12,19 @@ export function buildMessage(patientName: string, startTime: string, type: MsgTy
     const date = formatDate(new Date(startTime));
     const time = formatTime(new Date(startTime));
 
+    // Extract first names only
+    const firstName = patientName.split(' ')[0] || patientName;
+    const practFirstName = practiceName.split(' ')[0] || practiceName;
+
     switch (type) {
         case 'CONFIRMATION':
-            return `Dear ${patientName}. A reminder of your appointment with ${practiceName} on ${date} at ${time}. ${customMsg ? customMsg : ''}`;
+            return `Dear ${firstName}, a reminder of your appointment on ${date}, ${time}. Regards ${practFirstName}. ${customMsg ? customMsg : ''}`;
         case 'REMINDER':
-            return `Dear ${patientName}. A reminder of your appointment with ${practiceName} on ${date} at ${time}.`;
+            return `Dear ${firstName}, a reminder of your appointment on ${date}, ${time}. Regards ${practFirstName}.`;
         case 'CHANGE':
-            return `Your appointment with ${practiceName} has been rescheduled to ${date} at ${time} SAST. Please contact us if you have any questions.`;
+            return `Dear ${firstName}, your appointment has been rescheduled to ${date}, ${time}. Regards ${practFirstName}. Please contact us if you have any questions.`;
         case 'CANCELLATION':
-            return `Your appointment with ${practiceName} on ${date} at ${time} SAST has been cancelled. Please contact us to reschedule.`;
+            return `Dear ${firstName}, your appointment on ${date}, ${time} has been cancelled. Regards ${practFirstName}. Please contact us to reschedule.`;
         case 'CUSTOM':
         default:
             return customMsg || `Message from ${practiceName}.`;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
-import { Download } from 'lucide-react';
+import { Download, ShieldCheck } from 'lucide-react';
 
 interface Settings {
     id?: number;
@@ -11,6 +11,9 @@ interface Settings {
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState<Partial<Settings>>({});
+    const [weekdaysOnly, setWeekdaysOnly] = useState(() => localStorage.getItem('weekdaysOnly') === 'true');
+    const [defaultCalendarView, setDefaultCalendarView] = useState(() => localStorage.getItem('defaultCalendarView') || 'week');
+    const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
 
@@ -36,7 +39,6 @@ export default function SettingsPage() {
             if (settings.id) {
                 queryResult = await supabase.from('Setting').update(updatePayload).eq('id', settings.id);
             } else {
-                // If the trigger failed to create a setting, or it's a legacy user, try inserting
                 queryResult = await supabase.from('Setting').insert([updatePayload]).select().single();
                 if (queryResult.data) {
                     setSettings(queryResult.data);
@@ -48,6 +50,9 @@ export default function SettingsPage() {
                 throw queryResult.error;
             }
 
+            localStorage.setItem('weekdaysOnly', weekdaysOnly.toString());
+            localStorage.setItem('defaultCalendarView', defaultCalendarView);
+            localStorage.setItem('gemini_api_key', geminiApiKey);
             toast.success('Settings saved');
         } catch (err) {
             console.error("Catch block err", err);
@@ -113,9 +118,45 @@ export default function SettingsPage() {
                     </div>
                     <div className="form-group"><label className="form-label">Buffer between sessions (minutes)</label>
                         <input className="form-input" type="number" min={0} max={60} value={settings.bufferMinutes ?? 10} onChange={e => setSettings(s => ({ ...s, bufferMinutes: Number(e.target.value) }))} style={{ maxWidth: 120 }} /></div>
+                    <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '1rem' }}>
+                        <input type="checkbox" id="weekdaysOnly" checked={weekdaysOnly} onChange={e => setWeekdaysOnly(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                        <label htmlFor="weekdaysOnly" className="form-label" style={{ margin: 0, cursor: 'pointer' }}>Show weekdays only (hide weekends from calendar)</label>
+                    </div>
+                    <div className="form-group" style={{ marginTop: '1rem' }}>
+                        <label className="form-label">Default Calendar View</label>
+                        <select className="form-input" value={defaultCalendarView} onChange={e => setDefaultCalendarView(e.target.value)}>
+                            <option value="month">Month</option>
+                            <option value="week">Week</option>
+                            <option value="work_week">Work Week</option>
+                            <option value="day">Day</option>
+                        </select>
+                    </div>
                 </div>
 
-
+                <div className="card mt-4">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>AI Transcription & Document Retainment</h3>
+                        <span className="badge badge-green" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <ShieldCheck size={12} /> HPCSA & ECTA
+                        </span>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Google Gemini API Key (Handwriting OCR)</label>
+                        <input
+                            className="form-input"
+                            type="password"
+                            value={geminiApiKey}
+                            onChange={e => setGeminiApiKey(e.target.value)}
+                            placeholder="AIzaSy..."
+                        />
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                            Used by the document scanner to transcribe handwritten clinical notes into structured digital text with high fidelity.
+                        </p>
+                    </div>
+                    <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                        <strong>South Africa Document Retainment Notice:</strong> Client records and handwritten scans are saved with a minimum 6-year retention mandate (HPCSA Booklet 9) and cryptographically sealed with SHA-256 for legal admissibility under ECTA Section 14.
+                    </div>
+                </div>
 
                 <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end' }}>
                     <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Settings'}</button>

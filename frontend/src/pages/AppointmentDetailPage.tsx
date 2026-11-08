@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Send, XCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Send, XCircle, CheckCircle, RefreshCw, Camera, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { buildMessage, type MsgType } from '../lib/whatsapp';
 import toast from 'react-hot-toast';
+import ClientDocumentsModal from '../components/ClientDocumentsModal';
 
 interface Patient { id: number; name: string; phone: string; }
 interface MessageLog { id: number; type: string; status: string; sentAt: string; twilioSid?: string; errorMessage?: string; }
@@ -21,9 +22,14 @@ export default function AppointmentDetailPage() {
     const [newTime, setNewTime] = useState('');
     const [notes, setNotes] = useState('');
     const [saving, setSaving] = useState(false);
+    const [practiceName, setPracticeName] = useState('Roelof Retief');
+    const [docsModalOpen, setDocsModalOpen] = useState(false);
 
     const load = async () => {
-        const { data, error } = await supabase.from('Appointment').select('*, patient:Patient(id, name, phone)').eq('id', id).single();
+        const [{ data, error }, { data: pData }] = await Promise.all([
+            supabase.from('Appointment').select('*, patient:Patient(id, name, phone)').eq('id', id).single(),
+            supabase.from('Setting').select('practiceName').maybeSingle()
+        ]);
         if (error) {
             toast.error('Error loading appointment');
             return;
@@ -32,42 +38,28 @@ export default function AppointmentDetailPage() {
             setAppt(data as any);
             setNotes(data.notes || '');
         }
+        if (pData?.practiceName) setPracticeName(pData.practiceName);
     };
     useEffect(() => { load(); }, [id]);
 
-    const openWhatsApp = (phone: string, text: string, waWindow?: Window | null) => {
-        if (!phone || !text) {
-            if (waWindow) waWindow.close();
-            return;
-        }
+    const openWhatsApp = (phone: string, text: string) => {
+        if (!phone || !text) return;
+
         let cleanPhone = phone.replace(/[^0-9]/g, '');
         if (cleanPhone.startsWith('0')) {
             cleanPhone = '27' + cleanPhone.substring(1);
+        } else if (cleanPhone.length === 9) {
+            cleanPhone = '27' + cleanPhone;
         }
+
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const waUrl = isMobile
             ? `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`
             : `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
-
-        if (isMobile) {
-            if (waWindow) waWindow.close();
-            const a = document.createElement('a');
-            a.href = waUrl;
-            a.target = '_top';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        } else {
-            if (waWindow) {
-                waWindow.location.href = waUrl;
-            } else {
-                window.open(waUrl, '_blank') || (window.location.href = waUrl);
-            }
-        }
+        window.location.href = waUrl;
     };
 
     const handleSave = async () => {
-        const waWindow = window.open('', '_blank');
         setSaving(true);
         try {
             const updates = { startTime: newTime || appt?.startTime, notes, status: appt?.status };
@@ -75,58 +67,43 @@ export default function AppointmentDetailPage() {
             if (error) throw error;
 
             toast.success('Appointment updated!');
-            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
 
             if (appt?.patient?.phone) {
                 const msgText = buildMessage(appt.patient.name, updates.startTime as string, 'CHANGE', practiceName, updates.notes);
-                openWhatsApp(appt.patient.phone, msgText, waWindow);
-            } else if (waWindow) {
-                waWindow.close();
+                let cleanPhone = appt.patient.phone.replace(/[^0-9]/g, '');
+                if (cleanPhone.startsWith('0')) cleanPhone = '27' + cleanPhone.substring(1);
+                else if (cleanPhone.length === 9) cleanPhone = '27' + cleanPhone;
+
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                const waUrl = isMobile ? `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(msgText)}` : `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msgText)}`;
+
+                toast.custom((t) => (
+                    <div className="card" style={{ padding: '1rem', background: 'var(--bg-card)', border: '1px solid var(--accent)' }}>
+                        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Updated Successfully</h4>
+                        <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Notify {appt.patient.name} about this change?</p>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <a href={waUrl} target="_self" className="btn btn-primary btn-sm" onClick={() => toast.dismiss(t.id)}>Open WhatsApp</a>
+                            <button className="btn btn-secondary btn-sm" onClick={() => toast.dismiss(t.id)}>Skip</button>
+                        </div>
+                    </div>
+                ), { duration: 10000 });
             }
             setEditing(false);
             load();
         } catch (err: any) {
-            try {
-                if (waWindow && !waWindow.closed) {
-                    waWindow.close();
-                    if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
-                }
-            } catch (ignore) { }
             toast.error(err.message || 'Error updating');
         } finally { setSaving(false); }
     };
 
     const handleCancel = async () => {
-        if (!confirm('Cancel this appointment? You will be prompted to send a WhatsApp notification.')) return;
-        const waWindow = window.open('', '_blank');
+        if (!confirm('Cancel this appointment?')) return;
         try {
             const { error } = await supabase.from('Appointment').update({ status: 'CANCELLED' }).eq('id', id);
             if (error) throw error;
             toast.success('Appointment cancelled');
-
-            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
-
-            if (appt?.patient?.phone && appt?.startTime) {
-                const msgText = buildMessage(appt.patient.name, appt.startTime, 'CANCELLATION', practiceName);
-                openWhatsApp(appt.patient.phone, msgText, waWindow);
-            } else {
-                try {
-                    if (waWindow && !waWindow.closed) {
-                        waWindow.close();
-                        if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
-                    }
-                } catch (ignore) { }
-            }
             load();
-        } catch {
-            try {
-                if (waWindow && !waWindow.closed) {
-                    waWindow.close();
-                    if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
-                }
-            } catch (ignore) { }
+        } catch (err: any) {
+            toast.error(err.message || 'Error cancelling');
         }
     };
 
@@ -136,41 +113,20 @@ export default function AppointmentDetailPage() {
         load();
     };
 
-    const handleSendMsg = async (type: string) => {
-        const waWindow = window.open('', '_blank');
-        try {
-            const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
-            const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
-
-            if (appt?.patient?.phone && appt?.startTime) {
-                const msgText = buildMessage(appt.patient.name, appt.startTime, type as MsgType, practiceName, appt.customMsg);
-                openWhatsApp(appt.patient.phone, msgText, waWindow);
-            } else {
-                try {
-                    if (waWindow && !waWindow.closed) {
-                        waWindow.close();
-                        if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
-                    }
-                } catch (ignore) { }
-                toast.error('Could not generate message');
-            }
-        } catch {
-            try {
-                if (waWindow && !waWindow.closed) {
-                    waWindow.close();
-                    if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
-                }
-            } catch (ignore) { }
-            toast.error('Error generating message');
+    const handleSendMsg = (type: string) => {
+        if (appt?.patient?.phone && appt?.startTime) {
+            const msgText = buildMessage(appt.patient.name, appt.startTime, type as MsgType, practiceName, appt.customMsg);
+            openWhatsApp(appt.patient.phone, msgText);
+        } else {
+            toast.error('Could not generate message');
         }
     };
 
     if (!appt) return <div style={{ padding: '2rem', color: 'var(--text-muted)' }}>Loading…</div>;
 
-
     return (
         <div>
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/appointments')} style={{ marginBottom: '1rem' }}><ArrowLeft size={15} /> Back</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/appointments', { state: { date: appt.startTime, view: 'day' } })} style={{ marginBottom: '1rem' }}><ArrowLeft size={15} /> Back</button>
 
             <div className="page-header">
                 <div>
@@ -186,7 +142,7 @@ export default function AppointmentDetailPage() {
                         <button className="btn btn-secondary" onClick={() => {
                             setEditing(true);
                             const d = new Date(appt.startTime);
-                            d.setMinutes(0, 0, 0); // Reset minutes and seconds to 0
+                            d.setMinutes(0, 0, 0);
                             setNewTime(new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
                         }}><RefreshCw size={15} /> Reschedule</button>
                         <button className="btn btn-secondary" onClick={() => handleSendMsg('CONFIRMATION')}><Send size={15} /> Send WA Confirmation</button>
@@ -220,7 +176,44 @@ export default function AppointmentDetailPage() {
                     )}
                 </div>
 
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 700 }}>Clinical Notes & Scanned Documents</h3>
+                        <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>HPCSA Compliant</span>
+                    </div>
+                    <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)', marginBottom: '1.25rem', lineHeight: '1.4' }}>
+                        Capture or upload handwritten notes, clinical assessments, or consent forms. Stores original image and AI-digitized text directly on {appt.patient.name}'s profile.
+                    </p>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ flex: 1, justifyContent: 'center', gap: '6px' }}
+                            onClick={() => setDocsModalOpen(true)}
+                        >
+                            <Camera size={15} /> Scan / Upload Note
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ justifyContent: 'center', gap: '6px' }}
+                            onClick={() => setDocsModalOpen(true)}
+                        >
+                            <FileText size={15} /> View Client Records
+                        </button>
+                    </div>
+                </div>
             </div>
+
+            {/* Client Clinical Documents & Handwritten Notes Modal */}
+            {appt.patient && (
+                <ClientDocumentsModal
+                    patient={appt.patient}
+                    appointmentId={Number(id)}
+                    isOpen={docsModalOpen}
+                    onClose={() => setDocsModalOpen(false)}
+                />
+            )}
         </div>
     );
 }

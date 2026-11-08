@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Phone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { buildMessage } from '../lib/whatsapp';
@@ -9,18 +9,23 @@ interface Patient { id: number; name: string; phone: string; }
 
 export default function NewAppointmentPage() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [patients, setPatients] = useState<Patient[]>([]);
     const [patientId, setPatientId] = useState('');
+    const [patientSearch, setPatientSearch] = useState('');
+    const [dropdownOpen, setDropdownOpen] = useState(false);
     const [patientMode, setPatientMode] = useState<'select' | 'create'>('select');
     const [newPatient, setNewPatient] = useState({ name: '', phone: '', email: '' });
     const [startTime, setStartTime] = useState(() => {
+        if (location.state?.start) {
+            const d = new Date(location.state.start);
+            return new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+        }
         const d = new Date();
         d.setHours(d.getHours() + 1, 0, 0, 0); // Next hour, 00 minutes
         // Format for datetime-local: YYYY-MM-DDThh:mm
         return new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
     });
-    const [notes, setNotes] = useState('');
-    const [customMsg, setCustomMsg] = useState('');
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -28,6 +33,17 @@ export default function NewAppointmentPage() {
             if (r.data) setPatients(r.data as any);
         });
     }, []);
+
+    const filteredPatients = patients.filter(p => 
+        p.name.toLowerCase().includes(patientSearch.toLowerCase()) || 
+        p.phone.includes(patientSearch)
+    );
+
+    const handleSelectPatient = (p: Patient) => {
+        setPatientId(String(p.id));
+        setPatientSearch(p.name);
+        setDropdownOpen(false);
+    };
 
     const handleSelectContact = async () => {
         try {
@@ -71,8 +87,6 @@ export default function NewAppointmentPage() {
         }
 
         if (!startTime) return toast.error('Please select a date/time');
-
-        const waWindow = window.open('', '_blank');
         setSaving(true);
         try {
             const start = new Date(startTime);
@@ -87,7 +101,6 @@ export default function NewAppointmentPage() {
                 .maybeSingle();
 
             if (conflict) {
-                if (waWindow) waWindow.close();
                 const timeStr = new Date(conflict.startTime).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
                 setSaving(false);
                 return toast.error(`Time unavailable. slot conflicts with ${(conflict.patient as any)?.name} at ${timeStr}.`);
@@ -101,57 +114,46 @@ export default function NewAppointmentPage() {
                 targetPatientId = String(created.id);
             }
 
-            const { data: appt, error: apptError } = await supabase.from('Appointment')
-                .insert([{ patientId: Number(targetPatientId), startTime: start.toISOString(), endTime: end.toISOString(), notes, customMsg }])
+            const { error: apptError } = await supabase.from('Appointment')
+                .insert([{ patientId: Number(targetPatientId), startTime: start.toISOString(), endTime: end.toISOString() }])
                 .select().single();
             if (apptError) throw apptError;
 
-            toast.success('Appointment created!');
-
             const practiceNameQuery = await supabase.from('Setting').select('practiceName').maybeSingle();
             const practiceName = practiceNameQuery.data?.practiceName || 'Roelof Retief';
-            const msgText = buildMessage(targetPatientName, start.toISOString(), 'CONFIRMATION', practiceName, customMsg);
+            const msgText = buildMessage(targetPatientName, start.toISOString(), 'CONFIRMATION', practiceName, '');
 
             if (msgText && targetPatientPhone) {
                 let cleanPhone = targetPatientPhone.replace(/[^0-9]/g, '');
                 if (cleanPhone.startsWith('0')) {
                     cleanPhone = '27' + cleanPhone.substring(1);
+                } else if (cleanPhone.length === 9) {
+                    cleanPhone = '27' + cleanPhone;
                 }
+                
                 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
                 const waUrl = isMobile
                     ? `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(msgText)}`
                     : `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msgText)}`;
-
-                if (isMobile) {
-                    if (waWindow) waWindow.close();
-                    // On iOS Safari PWAs, setting window.location.href directly can sometimes record in the history stack,
-                    // causing the "Back to App" button to try and reload the whatsapp:// scheme inside the PWA view.
-                    // Instead, we create a hidden anchor link and fake a click.
-                    const a = document.createElement('a');
-                    a.href = waUrl;
-                    a.target = '_top';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                } else {
-                    if (waWindow) {
-                        waWindow.location.href = waUrl;
-                    } else {
-                        window.open(waUrl, '_blank') || (window.location.href = waUrl);
-                    }
-                }
-            } else if (waWindow) {
-                waWindow.close();
+                
+                toast.custom((t) => (
+                    <div className="card" style={{ padding: '1rem', background: 'var(--bg-card)', border: '1px solid var(--accent)' }}>
+                        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Appointment Saved!</h4>
+                        <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Send confirmation message to {targetPatientName}?</p>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <a href={waUrl} target="_self" className="btn btn-primary btn-sm" onClick={() => toast.dismiss(t.id)}>Open WhatsApp</a>
+                            <button className="btn btn-secondary btn-sm" onClick={() => toast.dismiss(t.id)}>Skip</button>
+                        </div>
+                    </div>
+                ), { duration: 10000 });
+            } else {
+                toast.success('Appointment created!');
             }
 
-            navigate(`/appointments/${appt.id}`);
+            // Route back to the calendar day view for the booked date
+            navigate('/appointments', { state: { date: start.toISOString(), view: 'day' } });
+
         } catch (err: any) {
-            try {
-                if (waWindow && !waWindow.closed) {
-                    waWindow.close();
-                    if (!waWindow.closed) waWindow.document.write('<script>window.close()</script>');
-                }
-            } catch (ignore) { }
             toast.error(err.message || 'Error creating appointment');
         } finally { setSaving(false); }
     };
@@ -160,9 +162,9 @@ export default function NewAppointmentPage() {
         <div>
             <div className="page-header">
                 <div>
-                    <button className="btn btn-ghost btn-sm" onClick={() => navigate('/appointments')} style={{ marginBottom: '0.5rem' }}><ArrowLeft size={15} /> Back</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => navigate('/appointments', { state: { date: new Date(startTime).toISOString(), view: 'day' } })} style={{ marginBottom: '0.5rem' }}><ArrowLeft size={15} /> Back</button>
                     <h2 className="page-title">New Appointment</h2>
-                    <p className="page-subtitle">Select a client and time slot — you will be prompted to send a WhatsApp confirmation.</p>
+                    <p className="page-subtitle">Select a client and time slot.</p>
                 </div>
             </div>
 
@@ -179,40 +181,80 @@ export default function NewAppointmentPage() {
                         </label>
 
                         {patientMode === 'select' ? (
-                            <select className="form-select" value={patientId} onChange={e => setPatientId(e.target.value)} required>
-                                <option value="">Select an existing client…</option>
-                                {patients.map(p => <option key={p.id} value={p.id}>{p.name} ({p.phone})</option>)}
-                            </select>
+                            <div style={{ position: 'relative' }}>
+                                <input 
+                                    type="text"
+                                    className="form-input form-input-lg" 
+                                    placeholder="Search for an existing client…" 
+                                    value={patientSearch}
+                                    onChange={e => {
+                                        setPatientSearch(e.target.value);
+                                        setDropdownOpen(true);
+                                        if (patientId) setPatientId(''); 
+                                    }}
+                                    onFocus={() => setDropdownOpen(true)}
+                                    onBlur={() => setTimeout(() => setDropdownOpen(false), 200)}
+                                    autoComplete="off"
+                                />
+                                {dropdownOpen && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '100%',
+                                        left: 0, right: 0,
+                                        zIndex: 10,
+                                        background: 'var(--bg-card)',
+                                        border: '1px solid var(--border-color)',
+                                        borderRadius: '0 0 6px 6px',
+                                        maxHeight: '200px',
+                                        overflowY: 'auto',
+                                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                                    }}>
+                                        {filteredPatients.length > 0 ? (
+                                            filteredPatients.map(p => (
+                                                <div 
+                                                    key={p.id}
+                                                    style={{
+                                                        padding: '0.75rem 1rem',
+                                                        cursor: 'pointer',
+                                                        borderBottom: '1px solid var(--border-color)',
+                                                        background: patientId === String(p.id) ? 'var(--bg-hover)' : 'transparent'
+                                                    }}
+                                                    onClick={() => handleSelectPatient(p)}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = patientId === String(p.id) ? 'var(--bg-hover)' : 'transparent'}
+                                                >
+                                                    <div style={{ fontWeight: 500 }}>{p.name}</div>
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.phone}</div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div style={{ padding: '0.75rem 1rem', color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.9rem' }}>
+                                                No clients found.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         ) : (
                             <div style={{ background: 'var(--bg-hover)', padding: '1rem', borderRadius: 6, border: '1px dashed var(--border-color)' }}>
                                 <button type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: '1rem', justifyContent: 'center' }} onClick={handleSelectContact}>
                                     <Phone size={16} /> Choose from Contacts
                                 </button>
-                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input id="new-patient-name" className="form-input" placeholder="Full Name *" name="name" autoComplete="name" value={newPatient.name || ''} onChange={e => setNewPatient(p => ({ ...p, name: e.target.value }))} required /></div>
-                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input id="new-patient-phone" type="tel" className="form-input" placeholder="Phone (E.164 e.g. +27821234567) *" name="phone" autoComplete="tel" value={newPatient.phone || ''} onChange={e => setNewPatient(p => ({ ...p, phone: e.target.value }))} required /></div>
-                                <div className="form-group" style={{ marginBottom: 0 }}><input id="new-patient-email" className="form-input" type="email" placeholder="Email (optional)" name="email" autoComplete="email" value={newPatient.email || ''} onChange={e => setNewPatient(p => ({ ...p, email: e.target.value }))} /></div>
+                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input id="new-patient-name" className="form-input form-input-lg" placeholder="Full Name *" name="name" autoComplete="name" value={newPatient.name || ''} onChange={e => setNewPatient(p => ({ ...p, name: e.target.value }))} required /></div>
+                                <div className="form-group" style={{ marginBottom: '0.75rem' }}><input id="new-patient-phone" type="tel" className="form-input form-input-lg" placeholder="Phone (E.164 e.g. +27821234567) *" name="phone" autoComplete="tel" value={newPatient.phone || ''} onChange={e => setNewPatient(p => ({ ...p, phone: e.target.value }))} required /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><input id="new-patient-email" className="form-input form-input-lg" type="email" placeholder="Email (optional)" name="email" autoComplete="email" value={newPatient.email || ''} onChange={e => setNewPatient(p => ({ ...p, email: e.target.value }))} /></div>
                             </div>
                         )}
                     </div>
 
                     <div className="form-group">
-                        <label className="form-label">Date & Start Time *</label>
-                        <input className="form-input" type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)} required />
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Session will run for 60 minutes</span>
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">Notes (practitioner only — not sent to client)</label>
-                        <textarea className="form-textarea" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Session topic, referral, etc." />
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">Custom message to include in WhatsApp confirmation (optional)</label>
-                        <textarea className="form-textarea" value={customMsg} onChange={e => setCustomMsg(e.target.value)} placeholder="e.g. Please remember to bring your intake form." style={{ minHeight: 60 }} />
+                        <label className="form-label" style={{ fontSize: '0.9rem' }}>Date & Start Time *</label>
+                        <input className="form-input form-input-lg" type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)} required />
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Session will run for 60 minutes</span>
                     </div>
 
                     <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-                        <button type="button" className="btn btn-secondary" onClick={() => navigate('/appointments')}>Cancel</button>
+                        <button type="button" className="btn btn-secondary" onClick={() => navigate('/appointments', { state: { date: new Date(startTime).toISOString(), view: 'day' } })}>Cancel</button>
                         <button type="submit" className="btn btn-primary" disabled={saving}>
                             {saving ? 'Creating…' : '✓ Create Appointment'}
                         </button>
