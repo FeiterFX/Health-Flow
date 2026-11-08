@@ -1,4 +1,5 @@
 import "@supabase/functions-js/edge-runtime.d.ts"
+import { createClient } from "@supabase/supabase-js"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,8 +13,81 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { imageBase64, mimeType = "image/jpeg" } = await req.json()
+    const payload = await req.json()
+    const { action, storagePath, imageBase64, mimeType = "image/jpeg" } = payload
 
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    )
+
+    // Helper: Ensure client-documents bucket exists
+    const ensureBucket = async () => {
+      const { data: buckets } = await supabaseAdmin.storage.listBuckets()
+      const exists = buckets?.some((b: any) => b.name === "client-documents")
+      if (!exists) {
+        const { error } = await supabaseAdmin.storage.createBucket("client-documents", {
+          public: true,
+          fileSizeLimit: 25 * 1024 * 1024,
+        })
+        if (error) console.warn("Bucket create error/warning:", error)
+      }
+    }
+
+    if (action === "ensure-bucket") {
+      const { data: buckets, error: listErr } = await supabaseAdmin.storage.listBuckets()
+      let createResult = null
+      let createErr = null
+      const exists = buckets?.some((b: any) => b.name === "client-documents")
+      if (!exists) {
+        const res = await supabaseAdmin.storage.createBucket("client-documents", {
+          public: true,
+          fileSizeLimit: 25 * 1024 * 1024,
+        })
+        createResult = res.data
+        createErr = res.error
+      }
+      return new Response(
+        JSON.stringify({ exists, buckets, listErr, createResult, createErr }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      )
+    }
+
+    if (action === "upload") {
+      if (!storagePath || !imageBase64) {
+        return new Response(
+          JSON.stringify({ error: "Missing storagePath or imageBase64 for upload action" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      await ensureBucket()
+
+      // Convert base64 to byte buffer
+      const binaryString = atob(imageBase64)
+      const bytes = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+      }
+
+      const { data: uploadData, error: uploadErr } = await supabaseAdmin.storage
+        .from("client-documents")
+        .upload(storagePath, bytes, {
+          contentType: mimeType,
+          upsert: true,
+        })
+
+      if (uploadErr) {
+        throw new Error(`Storage upload error: ${uploadErr.message}`)
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, path: uploadData?.path || storagePath }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      )
+    }
+
+    // Default action: Transcribe Document
     if (!imageBase64) {
       return new Response(
         JSON.stringify({ error: "Missing imageBase64 in request body" }),
@@ -127,9 +201,9 @@ Return only the clear, formatted transcription.`
       "No AI API key found on the server. Please set OPENROUTER_API_KEY in Supabase Edge Functions Secrets or VITE_OPENROUTER_API_KEY in Netlify environment variables."
     )
   } catch (error: any) {
-    console.error("Transcription error:", error)
+    console.error("Transcription/Storage error:", error)
     return new Response(
-      JSON.stringify({ error: error.message || "Failed to transcribe document" }),
+      JSON.stringify({ error: error.message || "Failed to process request" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
   }
