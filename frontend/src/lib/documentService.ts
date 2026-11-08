@@ -278,11 +278,12 @@ Structure the output cleanly using markdown headings if discernable:
 If certain words are illegible, denote them as [illegible: best guess?].
 Return only the clear, formatted transcription.`;
 
-    const model = (import.meta as any).env.VITE_OPENROUTER_MODEL || 'google/gemini-2.5-flash';
+    const model = (import.meta as any).env.VITE_OPENROUTER_MODEL || 'google/gemini-3.8-flash';
+    const baseUrl = (import.meta as any).env.VITE_OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
     const isOpenRouter = systemApiKey.startsWith('sk-or-') || systemApiKey.startsWith('sk-');
 
     if (isOpenRouter) {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

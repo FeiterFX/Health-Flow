@@ -22,8 +22,9 @@ Deno.serve(async (req) => {
     }
 
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")
+    const OPENROUTER_BASE_URL = Deno.env.get("OPENROUTER_BASE_URL") || "https://openrouter.ai/api/v1"
+    const MODEL = Deno.env.get("OPENROUTER_MODEL") || "google/gemini-3.8-flash"
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")
-    const MODEL = Deno.env.get("OPENROUTER_MODEL") || "google/gemini-2.5-flash"
 
     const prompt = `You are a medical & clinical record transcription expert. 
 Accurately transcribe all handwritten and printed clinical notes, observations, treatment records, or consent forms from this image.
@@ -42,7 +43,7 @@ Return only the clear, formatted transcription.`
 
     // 1. Prefer OpenRouter gateway if configured
     if (OPENROUTER_API_KEY) {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
