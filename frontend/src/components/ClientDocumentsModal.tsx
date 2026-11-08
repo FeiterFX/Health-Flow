@@ -192,10 +192,14 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
         }
     };
 
-    const handlePrintLegalExport = (doc: ClientDocument, imageUrl: string) => {
-        const printWindow = window.open('', '_blank');
+    const handlePrintLegalExport = (doc: ClientDocument, imageUrl: string, existingWindow?: Window | null) => {
+        let printWindow = existingWindow;
+        if (printWindow === undefined) {
+            printWindow = window.open('', '_blank');
+        }
+
         if (!printWindow) {
-            toast.error('Popup blocked. Please allow popups to export printable legal record.');
+            toast.error('Popup blocked by browser. Go to iPhone Settings > Safari and turn off "Block Pop-ups".', { duration: 6000 });
             return;
         }
 
@@ -402,8 +406,17 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
                                                     <button
                                                         className="btn btn-secondary btn-sm"
                                                         onClick={async () => {
-                                                            const url = await getDocumentViewUrl(doc.storage_path);
-                                                            handlePrintLegalExport(doc, url);
+                                                            const preWindow = window.open('', '_blank');
+                                                            if (preWindow) {
+                                                                preWindow.document.write('<!DOCTYPE html><html><body style="font-family:sans-serif;padding:30px;text-align:center;color:#475569;"><h3>Preparing legal record for print / PDF export...</h3></body></html>');
+                                                            }
+                                                            try {
+                                                                const url = await getDocumentViewUrl(doc.storage_path);
+                                                                handlePrintLegalExport(doc, url, preWindow);
+                                                            } catch (err: any) {
+                                                                if (preWindow) preWindow.close();
+                                                                toast.error('Failed to load document for export');
+                                                            }
                                                         }}
                                                         title="Print Legal Record / Export PDF"
                                                     >
