@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, Phone, Pencil, Trash2, X, FileText } from 'lucide-react';
+import { Search, Plus, Phone, Pencil, Trash2, X, FileText, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import ClientDocumentsModal from '../components/ClientDocumentsModal';
@@ -82,11 +82,71 @@ export default function PatientsPage() {
         }
     };
 
+    const handleExportAllClinical = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('ClientDocument')
+                .select('*, patient:Patient(name, phone, email)')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            if (!data || data.length === 0) return toast.error('No clinical documents found to export');
+
+            const headers = [
+                'Document ID',
+                'Client Name',
+                'Phone',
+                'Email',
+                'Document Type',
+                'Status',
+                'Created At',
+                'Verified At',
+                'HPCSA Retention Until',
+                'SHA-256 Checksum',
+                'Storage Path',
+                'Transcribed Notes'
+            ];
+
+            const rows = data.map(d => [
+                d.id,
+                `"${((d.patient as any)?.name || '').replace(/"/g, '""')}"`,
+                `"${((d.patient as any)?.phone || '').replace(/"/g, '""')}"`,
+                `"${((d.patient as any)?.email || '').replace(/"/g, '""')}"`,
+                d.document_type,
+                d.status,
+                new Date(d.created_at).toLocaleString('en-ZA'),
+                d.verified_at ? new Date(d.verified_at).toLocaleDateString('en-ZA') : 'Unverified',
+                new Date(d.retention_until).toLocaleDateString('en-ZA'),
+                `"${d.sha256_checksum || ''}"`,
+                `"${d.storage_path || ''}"`,
+                `"${(d.verified_text || d.raw_ocr_text || '').replace(/"/g, '""')}"`
+            ]);
+
+            const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `clinical_records_audit_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            toast.success(`Exported audit registry for ${data.length} records`);
+        } catch (err) {
+            toast.error('Error exporting clinical records');
+        }
+    };
+
     return (
         <div>
             <div className="page-header">
                 <div><h2 className="page-title">Clients</h2><p className="page-subtitle">{patients.length} clients total</p></div>
-                <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Add Client</button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button className="btn btn-secondary" onClick={handleExportAllClinical} title="Export Master Audit Registry of all clinical documents (CSV)">
+                        <FileSpreadsheet size={15} /> Export Clinical Audit
+                    </button>
+                    <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Add Client</button>
+                </div>
             </div>
 
             <div className="card">

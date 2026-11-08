@@ -5,6 +5,7 @@ import {
     FileCheck, Key
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 import {
     type ClientDocument,
     computeSHA256,
@@ -46,6 +47,18 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
             (import.meta as any).env.VITE_GEMINI_API_KEY
         );
     });
+    const [practiceInfo, setPracticeInfo] = useState<{ name: string; phone: string }>({ name: 'Roelof Retief Practice', phone: '' });
+
+    useEffect(() => {
+        supabase.from('Setting').select('practiceName, practicePhone').maybeSingle().then(({ data }) => {
+            if (data?.practiceName) {
+                setPracticeInfo({
+                    name: data.practiceName,
+                    phone: data.practicePhone || ''
+                });
+            }
+        });
+    }, []);
 
     // Document Viewing & Editing state
     const [viewingDoc, setViewingDoc] = useState<ClientDocument | null>(null);
@@ -279,6 +292,301 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
         printWindow.document.close();
     };
 
+    const handlePrintConsolidatedDossier = async () => {
+        if (documents.length === 0) {
+            toast.error('No records available to export for this client.');
+            return;
+        }
+
+        // Open window synchronously immediately on click to prevent Safari popup blocker
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Generating Dossier...</title></head>
+                <body style="font-family:sans-serif;padding:40px;text-align:center;color:#475569;background:#f8fafc;">
+                    <h2 style="color:#1e3a8a;">Preparing Consolidated Clinical Dossier</h2>
+                    <p>Fetching all ${documents.length} clinical records and attachments for ${patient.name}...</p>
+                    <div style="margin-top:20px;display:inline-block;width:30px;height:30px;border:3px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:spin 1s linear infinite;"></div>
+                    <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+                </body>
+                </html>
+            `);
+        } else {
+            toast.error('Popup blocked by browser. Please allow popups or turn off "Block Pop-ups" in Safari settings.', { duration: 6000 });
+            return;
+        }
+
+        try {
+            // Load signed URLs for all documents in parallel
+            const docsWithUrls = await Promise.all(
+                documents.map(async (doc) => {
+                    try {
+                        const url = await getDocumentViewUrl(doc.storage_path);
+                        return { doc, url };
+                    } catch {
+                        return { doc, url: '' };
+                    }
+                })
+            );
+
+            // Sort chronologically (oldest to newest for clinical narrative timeline)
+            const sorted = [...docsWithUrls].sort((a, b) => new Date(a.doc.created_at).getTime() - new Date(b.doc.created_at).getTime());
+            const earliestDate = new Date(sorted[0].doc.created_at).toLocaleDateString('en-ZA');
+            const latestDate = new Date(sorted[sorted.length - 1].doc.created_at).toLocaleDateString('en-ZA');
+
+            const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8" />
+                <title>Consolidated Clinical Dossier - ${patient.name}</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        color: #0f172a;
+                        padding: 30px;
+                        line-height: 1.5;
+                        background: #fff;
+                    }
+                    .no-print {
+                        position: sticky;
+                        top: 0;
+                        background: #1e3a8a;
+                        color: white;
+                        padding: 12px 20px;
+                        border-radius: 8px;
+                        margin-bottom: 25px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+                        z-index: 1000;
+                    }
+                    .no-print button {
+                        font-family: inherit;
+                        font-size: 13px;
+                        font-weight: 600;
+                        padding: 8px 16px;
+                        border-radius: 6px;
+                        border: none;
+                        cursor: pointer;
+                    }
+                    .btn-print { background: #3b82f6; color: white; }
+                    .btn-close { background: rgba(255,255,255,0.2); color: white; margin-left: 8px; }
+                    .dossier-header {
+                        border-bottom: 3px solid #2563eb;
+                        padding-bottom: 15px;
+                        margin-bottom: 25px;
+                    }
+                    .practice-title { font-size: 24px; font-weight: 800; color: #1e3a8a; margin: 0; }
+                    .practice-sub { font-size: 13px; color: #64748b; margin-top: 4px; }
+                    .dossier-badge {
+                        background: #f0fdf4;
+                        border: 1px solid #86efac;
+                        color: #166534;
+                        font-size: 11px;
+                        font-weight: 600;
+                        padding: 4px 10px;
+                        border-radius: 20px;
+                        display: inline-block;
+                        margin-top: 8px;
+                    }
+                    .summary-grid {
+                        display: grid;
+                        grid-template-columns: repeat(2, 1fr);
+                        gap: 12px;
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 16px;
+                        margin-bottom: 30px;
+                        font-size: 13px;
+                    }
+                    .summary-item strong { color: #475569; font-weight: 600; }
+                    .toc-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12px;
+                        margin-bottom: 35px;
+                    }
+                    .toc-table th, .toc-table td {
+                        padding: 8px 10px;
+                        border: 1px solid #cbd5e1;
+                        text-align: left;
+                    }
+                    .toc-table th { background: #f1f5f9; font-weight: 700; color: #334155; }
+                    .doc-entry {
+                        page-break-after: always;
+                        padding-top: 25px;
+                        border-top: 2px dashed #cbd5e1;
+                        margin-top: 25px;
+                    }
+                    .doc-entry:first-of-type {
+                        border-top: none;
+                        margin-top: 0;
+                        padding-top: 0;
+                    }
+                    .doc-entry:last-child {
+                        page-break-after: auto;
+                    }
+                    .doc-header {
+                        border-left: 4px solid #2563eb;
+                        padding-left: 12px;
+                        margin-bottom: 14px;
+                    }
+                    .doc-title { font-size: 16px; font-weight: 700; color: #1e293b; margin: 0; }
+                    .doc-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+                    .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; }
+                    .meta-table td { padding: 5px 8px; border: 1px solid #e2e8f0; }
+                    .meta-table td.label { font-weight: 600; background: #f8fafc; width: 22%; }
+                    .transcribed-box {
+                        background: #ffffff;
+                        border: 1px solid #cbd5e1;
+                        border-radius: 6px;
+                        padding: 14px;
+                        margin-bottom: 18px;
+                        white-space: pre-wrap;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+                        font-size: 13px;
+                        line-height: 1.6;
+                        color: #1e293b;
+                    }
+                    .image-box { text-align: center; margin-top: 15px; }
+                    .doc-image { max-width: 100%; max-height: 650px; object-fit: contain; border: 1px solid #cbd5e1; border-radius: 6px; }
+                    .footer-audit {
+                        border-top: 2px solid #e2e8f0;
+                        padding-top: 20px;
+                        margin-top: 40px;
+                        font-size: 12px;
+                        color: #64748b;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }
+                    @media print {
+                        body { padding: 0; }
+                        .no-print { display: none !important; }
+                        .doc-entry { page-break-after: always; }
+                        .doc-entry:last-child { page-break-after: auto; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="no-print">
+                    <div>
+                        <strong>Consolidated Clinical Dossier (${sorted.length} Records)</strong>
+                        <span style="opacity: 0.8; margin-left: 8px; font-size: 12px;">${patient.name}</span>
+                    </div>
+                    <div>
+                        <button class="btn-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
+                        <button class="btn-close" onclick="window.close()">✕ Close</button>
+                    </div>
+                </div>
+
+                <div class="dossier-header">
+                    <h1 class="practice-title">${practiceInfo.name}</h1>
+                    <div class="practice-sub">Clinical Practice Management &bull; Tel: ${practiceInfo.phone || 'N/A'}</div>
+                    <div class="dossier-badge">Certified Medical Dossier &bull; HPCSA Booklet 9 & ECTA Compliant</div>
+                </div>
+
+                <div class="summary-grid">
+                    <div class="summary-item"><strong>Client Name:</strong> ${patient.name}</div>
+                    <div class="summary-item"><strong>Client Phone:</strong> ${patient.phone || 'N/A'}</div>
+                    <div class="summary-item"><strong>Total Records:</strong> ${sorted.length} Clinical Documents</div>
+                    <div class="summary-item"><strong>Date Range:</strong> ${earliestDate} &ndash; ${latestDate}</div>
+                    <div class="summary-item"><strong>Generated On:</strong> ${new Date().toLocaleString('en-ZA')}</div>
+                    <div class="summary-item"><strong>Retention Policy:</strong> 6-Year Mandatory Minimum (Rule 9.1)</div>
+                </div>
+
+                <h3 style="font-size: 14px; font-weight: 700; margin: 0 0 10px; color: #1e3a8a;">Table of Contents / Chronological Index</h3>
+                <table class="toc-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Date</th>
+                            <th>Document Type</th>
+                            <th>Status</th>
+                            <th>ECTA SHA-256 Checksum (Integrity)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sorted.map((item, idx) => `
+                            <tr>
+                                <td>${idx + 1}</td>
+                                <td>${new Date(item.doc.created_at).toLocaleDateString('en-ZA')}</td>
+                                <td><strong>${item.doc.document_type.replace(/_/g, ' ')}</strong></td>
+                                <td>${item.doc.status}</td>
+                                <td><code style="font-size: 10px;">${item.doc.sha256_checksum.substring(0, 16)}...</code></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                ${sorted.map((item, idx) => `
+                    <div class="doc-entry">
+                        <div class="doc-header">
+                            <h2 class="doc-title">Record #${idx + 1}: ${item.doc.document_type.replace(/_/g, ' ')}</h2>
+                            <div class="doc-meta">Created on ${new Date(item.doc.created_at).toLocaleString('en-ZA')} &bull; Status: ${item.doc.status}</div>
+                        </div>
+
+                        <table class="meta-table">
+                            <tr>
+                                <td class="label">Document ID:</td>
+                                <td><code>${item.doc.id}</code></td>
+                                <td class="label">Status:</td>
+                                <td><strong>${item.doc.status}</strong> ${item.doc.verified_at ? `(Verified ${new Date(item.doc.verified_at).toLocaleDateString('en-ZA')})` : ''}</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Retention Mandate:</td>
+                                <td>Retain until ${new Date(item.doc.retention_until).toLocaleDateString('en-ZA')}</td>
+                                <td class="label">SHA-256 Checksum:</td>
+                                <td><code style="font-size: 10px;">${item.doc.sha256_checksum}</code></td>
+                            </tr>
+                        </table>
+
+                        <h4 style="font-size: 13px; font-weight: 700; margin: 12px 0 6px; color: #334155;">Digitized & Verified Clinical Text</h4>
+                        <div class="transcribed-box">${item.doc.verified_text || item.doc.raw_ocr_text || 'No transcribed content recorded.'}</div>
+
+                        ${item.url ? `
+                            <h4 style="font-size: 13px; font-weight: 700; margin: 14px 0 6px; color: #334155;">Original Scanned Artifact</h4>
+                            <div class="image-box">
+                                <img src="${item.url}" class="doc-image" alt="Scanned Document #${idx + 1}" />
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+
+                <div class="footer-audit">
+                    <div>
+                        <strong>Practitioner Verification & Certification:</strong><br />
+                        I certify that this consolidated dossier is a true and accurate record of the clinical consultations.
+                    </div>
+                    <div style="border-top: 1px solid #94a3b8; width: 220px; text-align: center; padding-top: 4px; margin-top: 30px;">
+                        Practitioner Signature & Date
+                    </div>
+                </div>
+
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() { window.print(); }, 400);
+                    }
+                </script>
+            </body>
+            </html>
+            `;
+
+            printWindow.document.open();
+            printWindow.document.write(html);
+            printWindow.document.close();
+        } catch (err: any) {
+            console.error('Consolidated dossier export failed:', err);
+            if (printWindow) printWindow.close();
+            toast.error(err.message || 'Failed to generate consolidated dossier');
+        }
+    };
+
     const copyToClipboard = (text: string, label: string) => {
         navigator.clipboard.writeText(text);
         toast.success(`${label} copied to clipboard!`);
@@ -360,6 +668,35 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    background: 'rgba(37, 99, 235, 0.08)',
+                                    border: '1px solid rgba(37, 99, 235, 0.25)',
+                                    borderRadius: '8px',
+                                    padding: '0.85rem 1rem',
+                                    flexWrap: 'wrap',
+                                    gap: '10px'
+                                }}>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e3a8a' }}>
+                                            Complete Client Records ({documents.length})
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                            Compile all verified notes & original scans into a single chronological legal dossier
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={handlePrintConsolidatedDossier}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.825rem', padding: '6px 14px' }}
+                                    >
+                                        <Printer size={15} /> Export / Print Consolidated Dossier (All Records)
+                                    </button>
+                                </div>
+
                                 {documents.map(doc => {
                                     const retentionDate = new Date(doc.retention_until);
                                     const now = new Date();

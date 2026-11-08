@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
-import { Download, ShieldCheck, Sparkles } from 'lucide-react';
+import { Download, ShieldCheck, Sparkles, FileSpreadsheet } from 'lucide-react';
 
 interface Settings {
     id?: number;
@@ -103,13 +103,71 @@ export default function SettingsPage() {
         }
     };
 
+    const handleExportClinicalRegistry = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('ClientDocument')
+                .select('*, patient:Patient(name, phone, email)')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            if (!data || data.length === 0) return toast.error('No clinical documents found to export');
+
+            const headers = [
+                'Document ID',
+                'Client Name',
+                'Phone',
+                'Email',
+                'Document Type',
+                'Status',
+                'Created At',
+                'Verified At',
+                'HPCSA Retention Until',
+                'SHA-256 Checksum',
+                'Storage Path',
+                'Transcribed Notes'
+            ];
+
+            const rows = data.map(d => [
+                d.id,
+                `"${((d.patient as any)?.name || '').replace(/"/g, '""')}"`,
+                `"${((d.patient as any)?.phone || '').replace(/"/g, '""')}"`,
+                `"${((d.patient as any)?.email || '').replace(/"/g, '""')}"`,
+                d.document_type,
+                d.status,
+                new Date(d.created_at).toLocaleString('en-ZA'),
+                d.verified_at ? new Date(d.verified_at).toLocaleDateString('en-ZA') : 'Unverified',
+                new Date(d.retention_until).toLocaleDateString('en-ZA'),
+                `"${d.sha256_checksum || ''}"`,
+                `"${d.storage_path || ''}"`,
+                `"${(d.verified_text || d.raw_ocr_text || '').replace(/"/g, '""')}"`
+            ]);
+
+            const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `clinical_records_registry_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            toast.success(`Exported ${data.length} clinical records`);
+        } catch (err) {
+            toast.error('Error exporting clinical records');
+        }
+    };
+
     if (loading) return <p className="text-muted">Loading…</p>;
 
     return (
         <div>
             <div className="page-header">
-                <div><h2 className="page-title">Settings</h2><p className="page-subtitle">Practice configuration</p></div>
-                <button className="btn btn-secondary" onClick={handleExport}><Download size={15} /> Export CSV</button>
+                <div><h2 className="page-title">Settings</h2><p className="page-subtitle">Practice configuration & data management</p></div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button className="btn btn-secondary" onClick={handleExport}><Download size={15} /> Export Appointments</button>
+                    <button className="btn btn-secondary" onClick={handleExportClinicalRegistry}><FileSpreadsheet size={15} /> Export Clinical Registry</button>
+                </div>
             </div>
 
             <form onSubmit={handleSave} style={{ maxWidth: 560 }}>
