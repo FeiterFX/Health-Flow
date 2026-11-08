@@ -13,7 +13,6 @@ export default function SettingsPage() {
     const [settings, setSettings] = useState<Partial<Settings>>({});
     const [weekdaysOnly, setWeekdaysOnly] = useState(() => localStorage.getItem('weekdaysOnly') === 'true');
     const [defaultCalendarView, setDefaultCalendarView] = useState(() => localStorage.getItem('defaultCalendarView') || 'week');
-    const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
 
@@ -52,7 +51,6 @@ export default function SettingsPage() {
 
             localStorage.setItem('weekdaysOnly', weekdaysOnly.toString());
             localStorage.setItem('defaultCalendarView', defaultCalendarView);
-            localStorage.setItem('gemini_api_key', geminiApiKey);
             toast.success('Settings saved');
         } catch (err) {
             console.error("Catch block err", err);
@@ -134,27 +132,14 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="card mt-4">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>AI Transcription & Document Retainment</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>Clinical Document Retainment</h3>
                         <span className="badge badge-green" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
                             <ShieldCheck size={12} /> HPCSA & ECTA
                         </span>
                     </div>
-                    <div className="form-group">
-                        <label className="form-label">AI Gateway API Key (OpenRouter or Google Gemini)</label>
-                        <input
-                            className="form-input"
-                            type="password"
-                            value={geminiApiKey}
-                            onChange={e => setGeminiApiKey(e.target.value)}
-                            placeholder="sk-or-v1-... (OpenRouter) or AIzaSy... (Gemini)"
-                        />
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                            Paste your OpenRouter key (routes to Gemini 2.5 Flash) or direct Google Gemini key to transcribe handwritten clinical notes.
-                        </p>
-                    </div>
                     <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                        <strong>South Africa Document Retainment Notice:</strong> Client records and handwritten scans are saved with a minimum 6-year retention mandate (HPCSA Booklet 9) and cryptographically sealed with SHA-256 for legal admissibility under ECTA Section 14.
+                        <strong>South Africa Document Retainment Notice:</strong> Client records and handwritten scans are saved with a minimum 6-year retention mandate (HPCSA Booklet 9 Rule 9.1) and cryptographically sealed with SHA-256 for legal admissibility under ECTA Section 14.
                     </div>
                 </div>
 

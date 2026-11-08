@@ -36,8 +36,6 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
     const [digitalText, setDigitalText] = useState<string>('');
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [apiKeyPrompt, setApiKeyPrompt] = useState(false);
-    const [tempApiKey, setTempApiKey] = useState('');
 
     // Document Viewing & Editing state
     const [viewingDoc, setViewingDoc] = useState<ClientDocument | null>(null);
@@ -93,19 +91,11 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
             return;
         }
 
-        const storedKey = localStorage.getItem('gemini_api_key') || (import.meta as any).env.VITE_GEMINI_API_KEY;
-        if (!storedKey && !tempApiKey) {
-            setApiKeyPrompt(true);
-            return;
-        }
-
-        const keyToUse = tempApiKey || storedKey;
         setIsTranscribing(true);
         try {
-            const transcription = await transcribeHandwritingWithGemini(selectedFile, keyToUse);
+            const transcription = await transcribeHandwritingWithGemini(selectedFile);
             setDigitalText(transcription);
             toast.success('Handwriting digitized successfully!');
-            setApiKeyPrompt(false);
         } catch (err: any) {
             console.error('AI Transcription failed:', err);
             toast.error(err.message || 'Handwriting transcription failed');
@@ -611,41 +601,6 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
                                                 {isTranscribing ? 'Transcribing…' : 'AI Transcribe Handwriting'}
                                             </button>
                                         </div>
-
-                                        {apiKeyPrompt && (
-                                            <div style={{
-                                                padding: '0.75rem',
-                                                background: 'rgba(245, 158, 11, 0.1)',
-                                                border: '1px solid rgba(245, 158, 11, 0.3)',
-                                                borderRadius: '6px',
-                                                marginBottom: '8px',
-                                                fontSize: '0.8rem'
-                                            }}>
-                                                <p style={{ margin: '0 0 6px', fontWeight: 600 }}>API Key Required for AI Transcription (OpenRouter or Gemini)</p>
-                                                <div style={{ display: 'flex', gap: '6px' }}>
-                                                    <input
-                                                        type="password"
-                                                        className="form-input"
-                                                        placeholder="Enter OpenRouter (sk-or-v1-...) or Gemini (AIza...) key"
-                                                        value={tempApiKey}
-                                                        onChange={e => setTempApiKey(e.target.value)}
-                                                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-primary btn-sm"
-                                                        onClick={() => {
-                                                            if (tempApiKey) {
-                                                                localStorage.setItem('gemini_api_key', tempApiKey);
-                                                                handleTranscribe();
-                                                            }
-                                                        }}
-                                                    >
-                                                        Save
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
 
                                         <textarea
                                             className="form-textarea"

@@ -213,25 +213,12 @@ export async function deleteClientDocument(id: string, legalHold: boolean): Prom
 }
 
 /**
- * Transcribes handwritten clinical notes from an image using OpenRouter or Google Gemini Vision API.
+ * Transcribes handwritten clinical notes from an image using backend Edge Function or system environment API key.
+ * No API keys are required or exposed in the app UI.
  */
 export async function transcribeHandwritingWithGemini(
-    file: File,
-    apiKeyOverride?: string
+    file: File
 ): Promise<string> {
-    const rawKey =
-        apiKeyOverride ||
-        localStorage.getItem('gemini_api_key') ||
-        (import.meta as any).env.VITE_GEMINI_API_KEY;
-
-    const apiKey = rawKey?.trim();
-
-    if (!apiKey) {
-        throw new Error(
-            'API Key not found. Please provide an OpenRouter or Gemini API key in Settings or enter it when scanning.'
-        );
-    }
-
     // Convert file to base64
     const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -244,6 +231,37 @@ export async function transcribeHandwritingWithGemini(
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
+
+    const mimeType = file.type || 'image/jpeg';
+
+    // 1. Primary: Invoke secure Supabase Edge Function (API key kept completely on server)
+    try {
+        const { data, error } = await supabase.functions.invoke('transcribe-document', {
+            body: { imageBase64: base64, mimeType }
+        });
+
+        if (!error && data?.text) {
+            return data.text.trim();
+        }
+        if (error && error.message && !error.message.includes('Failed to send') && !error.message.includes('404')) {
+            console.warn('Edge function returned error, attempting fallback:', error.message);
+        }
+    } catch (edgeErr) {
+        console.warn('Supabase edge function invoke failed, checking system environment:', edgeErr);
+    }
+
+    // 2. Secondary: System Environment Key (configured at build/Netlify environment level, never in UI)
+    const systemApiKey = (
+        (import.meta as any).env.VITE_OPENROUTER_API_KEY ||
+        (import.meta as any).env.VITE_GEMINI_API_KEY ||
+        ''
+    ).trim();
+
+    if (!systemApiKey) {
+        throw new Error(
+            'System AI key not configured. Please set OPENROUTER_API_KEY in your Supabase Edge Functions Secrets or VITE_OPENROUTER_API_KEY in Netlify environment variables.'
+        );
+    }
 
     const prompt = `You are a medical & clinical record transcription expert. 
 Accurately transcribe all handwritten and printed clinical notes, observations, treatment records, or consent forms from this image.
@@ -260,20 +278,20 @@ Structure the output cleanly using markdown headings if discernable:
 If certain words are illegible, denote them as [illegible: best guess?].
 Return only the clear, formatted transcription.`;
 
-    // Detect OpenRouter key (typically starts with sk-or- or sk-)
-    const isOpenRouter = apiKey.startsWith('sk-or-') || apiKey.startsWith('sk-');
+    const model = (import.meta as any).env.VITE_OPENROUTER_MODEL || 'google/gemini-2.5-flash';
+    const isOpenRouter = systemApiKey.startsWith('sk-or-') || systemApiKey.startsWith('sk-');
 
     if (isOpenRouter) {
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
+                'Authorization': `Bearer ${systemApiKey}`,
                 'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://debs-booking.netlify.app',
                 'X-Title': 'Debs Booking Practice'
             },
             body: JSON.stringify({
-                model: 'google/gemini-2.5-flash',
+                model,
                 messages: [
                     {
                         role: 'user',
@@ -282,7 +300,7 @@ Return only the clear, formatted transcription.`;
                             {
                                 type: 'image_url',
                                 image_url: {
-                                    url: `data:${file.type || 'image/jpeg'};base64,${base64}`
+                                    url: `data:${mimeType};base64,${base64}`
                                 }
                             }
                         ]
@@ -306,7 +324,7 @@ Return only the clear, formatted transcription.`;
 
     // Direct Google Gemini API endpoint
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${systemApiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -317,7 +335,7 @@ Return only the clear, formatted transcription.`;
                             { text: prompt },
                             {
                                 inline_data: {
-                                    mime_type: file.type || 'image/jpeg',
+                                    mime_type: mimeType,
                                     data: base64
                                 }
                             }
