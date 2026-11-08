@@ -217,7 +217,8 @@ export async function deleteClientDocument(id: string, legalHold: boolean): Prom
  * No API keys are required or exposed in the app UI.
  */
 export async function transcribeHandwritingWithGemini(
-    file: File
+    file: File,
+    userApiKey?: string
 ): Promise<string> {
     // Convert file to base64
     const base64 = await new Promise<string>((resolve, reject) => {
@@ -250,16 +251,22 @@ export async function transcribeHandwritingWithGemini(
         console.warn('Supabase edge function invoke failed, checking system environment:', edgeErr);
     }
 
-    // 2. Secondary: System Environment Key (configured at build/Netlify environment level, never in UI)
-    const systemApiKey = (
+    // 2. Secondary: Provided key, localStorage, or System Environment Key
+    const localOpenRouter = typeof window !== 'undefined' ? localStorage.getItem('openrouter_api_key') : null;
+    const localGemini = typeof window !== 'undefined' ? localStorage.getItem('gemini_api_key') : null;
+
+    const apiKey = (
+        userApiKey ||
+        localOpenRouter ||
+        localGemini ||
         (import.meta as any).env.VITE_OPENROUTER_API_KEY ||
         (import.meta as any).env.VITE_GEMINI_API_KEY ||
         ''
     ).trim();
 
-    if (!systemApiKey) {
+    if (!apiKey) {
         throw new Error(
-            'System AI key not configured. Please set OPENROUTER_API_KEY in your Supabase Edge Functions Secrets or VITE_OPENROUTER_API_KEY in Netlify environment variables.'
+            'NO_API_KEY: System AI key not configured. Please set OPENROUTER_API_KEY in Supabase Edge Functions Secrets, VITE_OPENROUTER_API_KEY in Netlify environment variables, or enter your API key in the app.'
         );
     }
 
@@ -280,14 +287,14 @@ Return only the clear, formatted transcription.`;
 
     const model = (import.meta as any).env.VITE_OPENROUTER_MODEL || 'google/gemini-3.8-flash';
     const baseUrl = (import.meta as any).env.VITE_OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-    const isOpenRouter = systemApiKey.startsWith('sk-or-') || systemApiKey.startsWith('sk-');
+    const isOpenRouter = apiKey.startsWith('sk-or-') || apiKey.startsWith('sk-');
 
     if (isOpenRouter) {
         const response = await fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${systemApiKey}`,
+                'Authorization': `Bearer ${apiKey}`,
                 'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://debs-booking.netlify.app',
                 'X-Title': 'Debs Booking Practice'
             },
@@ -325,7 +332,7 @@ Return only the clear, formatted transcription.`;
 
     // Direct Google Gemini API endpoint
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${systemApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
-import { Download, ShieldCheck } from 'lucide-react';
+import { Download, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface Settings {
     id?: number;
@@ -13,6 +13,7 @@ export default function SettingsPage() {
     const [settings, setSettings] = useState<Partial<Settings>>({});
     const [weekdaysOnly, setWeekdaysOnly] = useState(() => localStorage.getItem('weekdaysOnly') === 'true');
     const [defaultCalendarView, setDefaultCalendarView] = useState(() => localStorage.getItem('defaultCalendarView') || 'week');
+    const [aiApiKey, setAiApiKey] = useState(() => localStorage.getItem('openrouter_api_key') || localStorage.getItem('gemini_api_key') || '');
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
 
@@ -51,6 +52,20 @@ export default function SettingsPage() {
 
             localStorage.setItem('weekdaysOnly', weekdaysOnly.toString());
             localStorage.setItem('defaultCalendarView', defaultCalendarView);
+
+            if (aiApiKey.trim()) {
+                if (aiApiKey.trim().startsWith('sk-')) {
+                    localStorage.setItem('openrouter_api_key', aiApiKey.trim());
+                    localStorage.removeItem('gemini_api_key');
+                } else {
+                    localStorage.setItem('gemini_api_key', aiApiKey.trim());
+                    localStorage.removeItem('openrouter_api_key');
+                }
+            } else {
+                localStorage.removeItem('openrouter_api_key');
+                localStorage.removeItem('gemini_api_key');
+            }
+
             toast.success('Settings saved');
         } catch (err) {
             console.error("Catch block err", err);
@@ -129,6 +144,34 @@ export default function SettingsPage() {
                             <option value="day">Day</option>
                         </select>
                     </div>
+                </div>
+
+                <div className="card mt-4">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Sparkles size={16} style={{ color: '#f59e0b' }} /> AI Handwriting Transcription
+                        </h3>
+                        <span className={`badge ${aiApiKey || (import.meta as any).env.VITE_OPENROUTER_API_KEY ? 'badge-green' : 'badge-yellow'}`} style={{ fontSize: '0.75rem' }}>
+                            {aiApiKey || (import.meta as any).env.VITE_OPENROUTER_API_KEY ? 'Active' : 'Key Needed'}
+                        </span>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>OpenRouter or Gemini API Key</span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Supports sk-or-... or AIza...</span>
+                        </label>
+                        <input
+                            type="password"
+                            className="form-input"
+                            value={aiApiKey}
+                            onChange={e => setAiApiKey(e.target.value)}
+                            placeholder="sk-or-v1-..."
+                        />
+                    </div>
+                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                        Used to digitize handwritten clinical notes and patient records. You can enter an OpenRouter key here, or configure <code>OPENROUTER_API_KEY</code> in Supabase Edge Functions Secrets or <code>VITE_OPENROUTER_API_KEY</code> in Netlify build environment variables.
+                    </p>
                 </div>
 
                 <div className="card mt-4">

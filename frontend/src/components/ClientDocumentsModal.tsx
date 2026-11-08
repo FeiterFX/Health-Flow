@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
     X, Camera, Upload, CheckCircle2, ShieldCheck,
     Clock, Printer, Eye, Sparkles, RefreshCw, Copy, ExternalLink,
-    FileCheck
+    FileCheck, Key
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -36,6 +36,16 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
     const [digitalText, setDigitalText] = useState<string>('');
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [apiKeyPrompt, setApiKeyPrompt] = useState(false);
+    const [tempApiKey, setTempApiKey] = useState('');
+    const [hasSavedKey, setHasSavedKey] = useState<boolean>(() => {
+        return !!(
+            localStorage.getItem('openrouter_api_key') ||
+            localStorage.getItem('gemini_api_key') ||
+            (import.meta as any).env.VITE_OPENROUTER_API_KEY ||
+            (import.meta as any).env.VITE_GEMINI_API_KEY
+        );
+    });
 
     // Document Viewing & Editing state
     const [viewingDoc, setViewingDoc] = useState<ClientDocument | null>(null);
@@ -85,20 +95,30 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
         }
     };
 
-    const handleTranscribe = async () => {
+    const handleTranscribe = async (keyOverride?: string) => {
         if (!selectedFile) {
             toast.error('Please select or scan an image first');
             return;
         }
 
+        const keyToUse = keyOverride || 
+            (typeof window !== 'undefined' ? (localStorage.getItem('openrouter_api_key') || localStorage.getItem('gemini_api_key')) : undefined);
+
         setIsTranscribing(true);
         try {
-            const transcription = await transcribeHandwritingWithGemini(selectedFile);
+            const transcription = await transcribeHandwritingWithGemini(selectedFile, keyToUse || undefined);
             setDigitalText(transcription);
             toast.success('Handwriting digitized successfully!');
+            setApiKeyPrompt(false);
+            setHasSavedKey(true);
         } catch (err: any) {
             console.error('AI Transcription failed:', err);
-            toast.error(err.message || 'Handwriting transcription failed');
+            if (err.message && err.message.includes('NO_API_KEY')) {
+                setApiKeyPrompt(true);
+                toast.error('Please enter your OpenRouter or Gemini API key to proceed.');
+            } else {
+                toast.error(err.message || 'Handwriting transcription failed');
+            }
         } finally {
             setIsTranscribing(false);
         }
@@ -590,17 +610,92 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                             <label className="form-label" style={{ margin: 0 }}>Digitized Text Content</label>
-                                            <button
-                                                type="button"
-                                                className="btn btn-secondary btn-sm"
-                                                onClick={handleTranscribe}
-                                                disabled={isTranscribing}
-                                                style={{ fontSize: '0.75rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                            >
-                                                {isTranscribing ? <RefreshCw size={12} className="spin" /> : <Sparkles size={12} style={{ color: '#f59e0b' }} />}
-                                                {isTranscribing ? 'Transcribing…' : 'AI Transcribe Handwriting'}
-                                            </button>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary btn-sm"
+                                                    onClick={() => setApiKeyPrompt(!apiKeyPrompt)}
+                                                    title="Configure API Key"
+                                                    style={{ fontSize: '0.75rem', padding: '4px 6px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                >
+                                                    <Key size={12} /> {hasSavedKey ? 'Key Saved' : 'Set Key'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary btn-sm"
+                                                    onClick={() => handleTranscribe()}
+                                                    disabled={isTranscribing}
+                                                    style={{ fontSize: '0.75rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                >
+                                                    {isTranscribing ? <RefreshCw size={12} className="spin" /> : <Sparkles size={12} />}
+                                                    {isTranscribing ? 'Transcribing…' : 'AI Transcribe Handwriting'}
+                                                </button>
+                                            </div>
                                         </div>
+
+                                        {apiKeyPrompt && (
+                                            <div style={{
+                                                padding: '0.75rem',
+                                                background: 'rgba(59, 130, 246, 0.08)',
+                                                border: '1px solid rgba(59, 130, 246, 0.3)',
+                                                borderRadius: '6px',
+                                                marginBottom: '8px',
+                                                fontSize: '0.8rem'
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                    <span style={{ fontWeight: 600 }}>OpenRouter or Gemini API Key</span>
+                                                    {(localStorage.getItem('openrouter_api_key') || localStorage.getItem('gemini_api_key')) && (
+                                                        <button
+                                                            type="button"
+                                                            style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+                                                            onClick={() => {
+                                                                localStorage.removeItem('openrouter_api_key');
+                                                                localStorage.removeItem('gemini_api_key');
+                                                                setHasSavedKey(false);
+                                                                setTempApiKey('');
+                                                                toast.success('Saved API key removed');
+                                                            }}
+                                                        >
+                                                            Clear Key
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                    <input
+                                                        type="password"
+                                                        className="form-input"
+                                                        placeholder="Paste OpenRouter (sk-or-...) or Gemini key"
+                                                        value={tempApiKey}
+                                                        onChange={e => setTempApiKey(e.target.value)}
+                                                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm"
+                                                        onClick={() => {
+                                                            const trimmed = tempApiKey.trim();
+                                                            if (!trimmed) {
+                                                                toast.error('Please enter an API key');
+                                                                return;
+                                                            }
+                                                            if (trimmed.startsWith('sk-')) {
+                                                                localStorage.setItem('openrouter_api_key', trimmed);
+                                                            } else {
+                                                                localStorage.setItem('gemini_api_key', trimmed);
+                                                            }
+                                                            setHasSavedKey(true);
+                                                            toast.success('API key saved in browser!');
+                                                            handleTranscribe(trimmed);
+                                                        }}
+                                                    >
+                                                        Save & Run
+                                                    </button>
+                                                </div>
+                                                <p style={{ margin: '6px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                                    Stored safely in your device browser. Alternatively, configure in Settings or Netlify.
+                                                </p>
+                                            </div>
+                                        )}
 
                                         <textarea
                                             className="form-textarea"
