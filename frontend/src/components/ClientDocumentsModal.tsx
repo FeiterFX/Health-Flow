@@ -621,12 +621,12 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
                                                 marginBottom: '8px',
                                                 fontSize: '0.8rem'
                                             }}>
-                                                <p style={{ margin: '0 0 6px', fontWeight: 600 }}>Gemini API Key Required for AI Transcription</p>
+                                                <p style={{ margin: '0 0 6px', fontWeight: 600 }}>API Key Required for AI Transcription (OpenRouter or Gemini)</p>
                                                 <div style={{ display: 'flex', gap: '6px' }}>
                                                     <input
                                                         type="password"
                                                         className="form-input"
-                                                        placeholder="Enter Gemini API key (AIza...)"
+                                                        placeholder="Enter OpenRouter (sk-or-v1-...) or Gemini (AIza...) key"
                                                         value={tempApiKey}
                                                         onChange={e => setTempApiKey(e.target.value)}
                                                         style={{ fontSize: '0.8rem', padding: '4px 8px' }}

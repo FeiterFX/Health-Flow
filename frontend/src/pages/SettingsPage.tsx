@@ -141,16 +141,16 @@ export default function SettingsPage() {
                         </span>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Google Gemini API Key (Handwriting OCR)</label>
+                        <label className="form-label">AI Gateway API Key (OpenRouter or Google Gemini)</label>
                         <input
                             className="form-input"
                             type="password"
                             value={geminiApiKey}
                             onChange={e => setGeminiApiKey(e.target.value)}
-                            placeholder="AIzaSy..."
+                            placeholder="sk-or-v1-... (OpenRouter) or AIzaSy... (Gemini)"
                         />
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                            Used by the document scanner to transcribe handwritten clinical notes into structured digital text with high fidelity.
+                            Paste your OpenRouter key (routes to Gemini 2.5 Flash) or direct Google Gemini key to transcribe handwritten clinical notes.
                         </p>
                     </div>
                     <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>

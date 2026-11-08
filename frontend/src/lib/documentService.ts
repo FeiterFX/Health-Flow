@@ -213,20 +213,22 @@ export async function deleteClientDocument(id: string, legalHold: boolean): Prom
 }
 
 /**
- * Transcribes handwritten clinical notes from an image using Gemini Vision API.
+ * Transcribes handwritten clinical notes from an image using OpenRouter or Google Gemini Vision API.
  */
 export async function transcribeHandwritingWithGemini(
     file: File,
     apiKeyOverride?: string
 ): Promise<string> {
-    const apiKey =
+    const rawKey =
         apiKeyOverride ||
         localStorage.getItem('gemini_api_key') ||
         (import.meta as any).env.VITE_GEMINI_API_KEY;
 
+    const apiKey = rawKey?.trim();
+
     if (!apiKey) {
         throw new Error(
-            'Gemini API Key not found. Please provide an API key in Settings or enter it when scanning.'
+            'API Key not found. Please provide an OpenRouter or Gemini API key in Settings or enter it when scanning.'
         );
     }
 
@@ -258,6 +260,51 @@ Structure the output cleanly using markdown headings if discernable:
 If certain words are illegible, denote them as [illegible: best guess?].
 Return only the clear, formatted transcription.`;
 
+    // Detect OpenRouter key (typically starts with sk-or- or sk-)
+    const isOpenRouter = apiKey.startsWith('sk-or-') || apiKey.startsWith('sk-');
+
+    if (isOpenRouter) {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://debs-booking.netlify.app',
+                'X-Title': 'Debs Booking Practice'
+            },
+            body: JSON.stringify({
+                model: 'google/gemini-2.5-flash',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: prompt },
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: `data:${file.type || 'image/jpeg'};base64,${base64}`
+                                }
+                            }
+                        ]
+                    }
+                ]
+            })
+        });
+
+        const json = await response.json();
+        if (json.error) {
+            throw new Error(`OpenRouter error: ${json.error.message || JSON.stringify(json.error)}`);
+        }
+
+        const text = json.choices?.[0]?.message?.content;
+        if (!text) {
+            throw new Error('No text returned from OpenRouter Gemini model.');
+        }
+
+        return text.trim();
+    }
+
+    // Direct Google Gemini API endpoint
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         {
