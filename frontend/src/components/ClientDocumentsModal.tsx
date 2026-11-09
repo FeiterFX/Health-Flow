@@ -47,14 +47,29 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
             (import.meta as any).env.VITE_GEMINI_API_KEY
         );
     });
-    const [practiceInfo, setPracticeInfo] = useState<{ name: string; phone: string }>({ name: 'Roelof Retief Practice', phone: '' });
+    const [practiceInfo, setPracticeInfo] = useState<{
+        name: string;
+        phone: string;
+        title: string;
+        practiceNumber: string;
+        hpcsaNumber: string;
+    }>({
+        name: 'Roelof Retief Practice',
+        phone: '',
+        title: '',
+        practiceNumber: '',
+        hpcsaNumber: ''
+    });
 
     useEffect(() => {
-        supabase.from('Setting').select('practiceName, practicePhone').maybeSingle().then(({ data }) => {
-            if (data?.practiceName) {
+        supabase.from('Setting').select('practiceName, practicePhone, practiceTitle, practiceNumber, hpcsaNumber').maybeSingle().then(({ data }) => {
+            if (data) {
                 setPracticeInfo({
-                    name: data.practiceName,
-                    phone: data.practicePhone || ''
+                    name: data.practiceName || 'Roelof Retief Practice',
+                    phone: data.practicePhone || '',
+                    title: data.practiceTitle || '',
+                    practiceNumber: data.practiceNumber || '',
+                    hpcsaNumber: data.hpcsaNumber || ''
                 });
             }
         });
@@ -240,8 +255,16 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
         </head>
         <body>
             <div class="header">
-                <div class="title">Clinical Record & Verified Handwritten Note</div>
-                <div class="subtitle">Debs Booking Practice Management &bull; South Africa HPCSA & ECTA Compliant Record</div>
+                <div class="title">${practiceInfo.name}</div>
+                ${practiceInfo.title ? `<div style="font-size: 14px; font-weight: 600; color: #334155; margin-top: 3px;">${practiceInfo.title}</div>` : ''}
+                <div class="subtitle" style="display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; color: #475569;">
+                    ${practiceInfo.practiceNumber ? `<span><strong>Practice No (PCNS):</strong> ${practiceInfo.practiceNumber}</span>` : ''}
+                    ${practiceInfo.hpcsaNumber ? `<span><strong>HPCSA / Reg No:</strong> ${practiceInfo.hpcsaNumber}</span>` : ''}
+                    ${practiceInfo.phone ? `<span><strong>Tel:</strong> ${practiceInfo.phone}</span>` : ''}
+                </div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 5px;">
+                    Certified Electronic Clinical Record &bull; South Africa HPCSA Booklet 9 & ECTA Compliant
+                </div>
             </div>
 
             <table class="meta-table">
@@ -487,13 +510,20 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
 
                 <div class="dossier-header">
                     <h1 class="practice-title">${practiceInfo.name}</h1>
-                    <div class="practice-sub">Clinical Practice Management &bull; Tel: ${practiceInfo.phone || 'N/A'}</div>
+                    ${practiceInfo.title ? `<div style="font-size: 15px; font-weight: 600; color: #334155; margin-top: 3px;">${practiceInfo.title}</div>` : ''}
+                    <div class="practice-sub" style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; color: #475569;">
+                        ${practiceInfo.practiceNumber ? `<span><strong>Practice No (PCNS):</strong> ${practiceInfo.practiceNumber}</span>` : ''}
+                        ${practiceInfo.hpcsaNumber ? `<span><strong>HPCSA / Reg No:</strong> ${practiceInfo.hpcsaNumber}</span>` : ''}
+                        ${practiceInfo.phone ? `<span><strong>Tel:</strong> ${practiceInfo.phone}</span>` : ''}
+                    </div>
                     <div class="dossier-badge">Certified Medical Dossier &bull; HPCSA Booklet 9 & ECTA Compliant</div>
                 </div>
 
                 <div class="summary-grid">
                     <div class="summary-item"><strong>Client Name:</strong> ${patient.name}</div>
                     <div class="summary-item"><strong>Client Phone:</strong> ${patient.phone || 'N/A'}</div>
+                    <div class="summary-item"><strong>Practice / Practitioner:</strong> ${practiceInfo.name} ${practiceInfo.title ? `(${practiceInfo.title})` : ''}</div>
+                    <div class="summary-item"><strong>Registration Numbers:</strong> ${[practiceInfo.practiceNumber ? `PCNS: ${practiceInfo.practiceNumber}` : null, practiceInfo.hpcsaNumber ? `HPCSA: ${practiceInfo.hpcsaNumber}` : null].filter(Boolean).join(' | ') || 'N/A'}</div>
                     <div class="summary-item"><strong>Total Records:</strong> ${sorted.length} Clinical Documents</div>
                     <div class="summary-item"><strong>Date Range:</strong> ${earliestDate} &ndash; ${latestDate}</div>
                     <div class="summary-item"><strong>Generated On:</strong> ${new Date().toLocaleString('en-ZA')}</div>
@@ -561,7 +591,12 @@ export default function ClientDocumentsModal({ patient, isOpen, onClose, appoint
                 <div class="footer-audit">
                     <div>
                         <strong>Practitioner Verification & Certification:</strong><br />
-                        I certify that this consolidated dossier is a true and accurate record of the clinical consultations.
+                        I certify that this consolidated dossier is a true and accurate record of the clinical consultations.<br />
+                        <span style="font-size: 11px; color: #64748b;">
+                            ${practiceInfo.name} ${practiceInfo.title ? `&bull; ${practiceInfo.title}` : ''}
+                            ${practiceInfo.practiceNumber ? `&bull; Practice No (PCNS): ${practiceInfo.practiceNumber}` : ''}
+                            ${practiceInfo.hpcsaNumber ? `&bull; HPCSA Reg: ${practiceInfo.hpcsaNumber}` : ''}
+                        </span>
                     </div>
                     <div style="border-top: 1px solid #94a3b8; width: 220px; text-align: center; padding-top: 4px; margin-top: 30px;">
                         Practitioner Signature & Date

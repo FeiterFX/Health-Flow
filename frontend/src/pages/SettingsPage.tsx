@@ -7,6 +7,9 @@ interface Settings {
     id?: number;
     bufferMinutes: number; workdayStart: string; workdayEnd: string;
     practiceName: string; practicePhone: string;
+    practiceTitle?: string;
+    practiceNumber?: string;
+    hpcsaNumber?: string;
 }
 
 export default function SettingsPage() {
@@ -173,10 +176,53 @@ export default function SettingsPage() {
             <form onSubmit={handleSave} style={{ maxWidth: 560 }}>
                 <div className="card">
                     <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.9rem', fontWeight: 700 }}>Practice Details</h3>
-                    <div className="form-group"><label className="form-label">Practice / Practitioner Name</label>
-                        <input className="form-input" value={settings.practiceName || ''} onChange={e => setSettings(s => ({ ...s, practiceName: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">Practice Phone (shown in messages)</label>
-                        <input className="form-input" value={settings.practicePhone || ''} onChange={e => setSettings(s => ({ ...s, practicePhone: e.target.value }))} placeholder="+27821234567" /></div>
+                    <div className="form-group">
+                        <label className="form-label">Practice / Practitioner Name</label>
+                        <input
+                            className="form-input"
+                            value={settings.practiceName || ''}
+                            onChange={e => setSettings(s => ({ ...s, practiceName: e.target.value }))}
+                            placeholder="e.g. Debs Practice"
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Practice Title / Professional Discipline</label>
+                        <input
+                            className="form-input"
+                            value={settings.practiceTitle || ''}
+                            onChange={e => setSettings(s => ({ ...s, practiceTitle: e.target.value }))}
+                            placeholder="e.g. Clinical Psychologist / Occupational Therapist"
+                        />
+                    </div>
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label className="form-label">Practice No (PCNS / BHF)</label>
+                            <input
+                                className="form-input"
+                                value={settings.practiceNumber || ''}
+                                onChange={e => setSettings(s => ({ ...s, practiceNumber: e.target.value }))}
+                                placeholder="e.g. PR 0123456"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">HPCSA / Professional Reg No</label>
+                            <input
+                                className="form-input"
+                                value={settings.hpcsaNumber || ''}
+                                onChange={e => setSettings(s => ({ ...s, hpcsaNumber: e.target.value }))}
+                                placeholder="e.g. PS 0123456"
+                            />
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Practice Phone (shown in messages & exports)</label>
+                        <input
+                            className="form-input"
+                            value={settings.practicePhone || ''}
+                            onChange={e => setSettings(s => ({ ...s, practicePhone: e.target.value }))}
+                            placeholder="+27821234567"
+                        />
+                    </div>
                 </div>
 
                 <div className="card mt-4">
